@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class ORMModel(BaseModel):
@@ -550,13 +550,34 @@ class SendingAccountUpdate(BaseModel):
     daily_send_limit: int | None = None
     weekly_connection_limit: int | None = None
     status: Literal["active", "paused", "restricted"] | None = None
+    provider: Literal["manual", "unipile"] | None = None
+    provider_account_id: str | None = None
+
+
+class ConnectAccountRequest(BaseModel):
+    success_redirect_url: str | None = None
+
+
+class ConnectAccountResponse(BaseModel):
+    url: str
+    instructions: str
 
 
 class SendingAccountOut(ORMModel):
     id: uuid.UUID
     linkedin_profile_url: str | None
     account_label: str | None
+    provider: str = "manual"
+    provider_account_id: str | None = None
+    delivery_connected: bool = False
     status: str
+
+    @model_validator(mode="after")
+    def _compute_delivery_connected(self):
+        from app.services.delivery import unipile_configured
+
+        self.delivery_connected = self.provider == "unipile" and bool(self.provider_account_id) and unipile_configured()
+        return self
     daily_send_limit: int
     weekly_connection_limit: int
     sends_today: int

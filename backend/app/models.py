@@ -295,6 +295,9 @@ class SendingAccount(Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     linkedin_profile_url: Mapped[str | None] = mapped_column(String(500))
     account_label: Mapped[str | None] = mapped_column(String(255))
+    # Delivery provider: "manual" (human sends on LinkedIn) or "unipile".
+    provider: Mapped[str] = mapped_column(String(50), default="manual", server_default="manual")
+    provider_account_id: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(50), default="active", server_default="active")
     daily_send_limit: Mapped[int] = mapped_column(Integer, default=50, server_default="50")
     weekly_connection_limit: Mapped[int] = mapped_column(Integer, default=100, server_default="100")

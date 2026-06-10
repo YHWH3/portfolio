@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_workspace, require_role
 from app.database import get_db
-from app.models import Campaign, Conversation, Intent, Lead, Message
+from app.models import Campaign, Conversation, Intent, Lead, Message, SafetyLog, SendingAccount
 from app.schemas import (
     ConversationDetail,
     ConversationListItem,
@@ -21,7 +21,7 @@ from app.schemas import (
     ReplyRequest,
     SuggestionsResponse,
 )
-from app.services import events, intent as intent_service, metrics, replies
+from app.services import delivery, events, intent as intent_service, metrics, replies
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 
@@ -123,12 +123,37 @@ async def send_reply(
     db: AsyncSession = Depends(get_db),
 ):
     """Human-written (or human-edited AI suggestion) reply. The human pressed
-    send — this is the explicit approval step for inbox replies."""
+    send — this is the explicit approval step for inbox replies. When the
+    workspace's sending account is linked to a delivery provider, the reply is
+    delivered to LinkedIn for real before being recorded."""
     conversation = await _get_conversation(conversation_id, workspace, db)
+    account = (await db.execute(
+        select(SendingAccount).where(
+            SendingAccount.workspace_id == workspace.id, SendingAccount.status == "active"
+        ).order_by(SendingAccount.created_at).limit(1)
+    )).scalar_one_or_none()
+
+    delivery_meta = {"provider": "manual", "delivered": False}
+    if account is not None and delivery.uses_real_delivery(account):
+        try:
+            delivery_meta = await delivery.deliver(account, conversation.lead, payload.content, "message")
+        except delivery.DeliveryError as error:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Delivery failed: {error}")
+
     message = Message(conversation_id=conversation.id, sender_type="user", content=payload.content)
     db.add(message)
     conversation.last_message_at = datetime.utcnow()
     conversation.updated_at = datetime.utcnow()
+    if account is not None:
+        account.sends_today += 1
+        account.sends_this_week += 1
+        db.add(SafetyLog(
+            account_id=account.id,
+            action_type="message",
+            details={"conversation_id": str(conversation.id), **delivery_meta},
+            daily_count_at_time=account.sends_today,
+            weekly_count_at_time=account.sends_this_week,
+        ))
     await metrics.bump_metric(db, conversation.campaign_id, "messages_sent")
     await metrics.record_event(db, conversation.campaign_id, "reply_sent", {"conversation_id": str(conversation.id)})
     await db.commit()

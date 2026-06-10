@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     AI_PROVIDER: str = "auto"
     CLAUDE_CLI_PATH: str = "claude"
 
+    # LinkedIn delivery provider (Unipile). When set and an account is linked,
+    # human-approved sends are delivered to LinkedIn for real.
+    UNIPILE_DSN: str = ""
+    UNIPILE_API_KEY: str = ""
+
     JWT_SECRET: str = "dev-jwt-secret"
     JWT_REFRESH_SECRET: str = "dev-jwt-refresh-secret"
     ENCRYPTION_KEY: str = "dev-encryption-key"

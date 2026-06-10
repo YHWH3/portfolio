@@ -25,7 +25,7 @@ from app.models import (
     SequenceStep,
     Workspace,
 )
-from app.services import draft_engine, embeddings, enrichment, events, ingestion, metrics, safety, scheduling
+from app.services import delivery, draft_engine, embeddings, enrichment, events, ingestion, metrics, safety, scheduling
 
 logger = logging.getLogger(__name__)
 
@@ -179,13 +179,95 @@ def ingest_document_task(document_id: str) -> bool:
         session.close()
 
 
+def _dispatch_one(session, draft: DraftQueueItem, *, ignore_campaign_state: bool = False) -> bool:
+    """Deliver one human-approved draft. Returns True if it was sent.
+
+    Only messages a human explicitly approved ever reach this point; soft
+    limits are checked per account before each send. Delivery goes through the
+    configured provider (manual tracking by default, Unipile when linked)."""
+    campaign = session.get(Campaign, draft.campaign_id)
+    if campaign is None:
+        return False
+    if not ignore_campaign_state and campaign.status != "running":
+        return False
+    step = session.get(SequenceStep, draft.sequence_step_id)
+    action_type = "connection_request" if step and step.step_type == "connection_request" else "message"
+    account = session.execute(
+        select(SendingAccount).where(
+            SendingAccount.workspace_id == campaign.workspace_id,
+            SendingAccount.status == "active",
+        ).order_by(SendingAccount.created_at).limit(1)
+    ).scalar_one_or_none()
+    if account is None:
+        return False
+    allowed, reason = safety.check_soft_block(account, action_type)
+    if not allowed:
+        # Push to tomorrow's window instead of failing the draft.
+        draft.scheduled_for = scheduling.next_send_slot(
+            campaign.schedule_config, 0, now=datetime.utcnow().replace(hour=0, minute=0) + timedelta(days=1)
+        )
+        events.publish_sync(campaign.workspace_id, "safety.warning", {
+            "account_id": str(account.id), "message": reason, "health_score": float(account.health_score),
+        })
+        return False
+    if reason:
+        events.publish_sync(campaign.workspace_id, "safety.warning", {
+            "account_id": str(account.id), "message": reason, "health_score": float(account.health_score),
+        })
+
+    content = draft.human_edit or draft.ai_draft
+    lead = session.get(Lead, draft.lead_id)
+    try:
+        delivery_meta = delivery.deliver_sync(account, lead, content, action_type)
+    except delivery.DeliveryError as error:
+        draft.status = "failed"
+        metrics.record_event_sync(session, campaign.id, "delivery_failed", {"draft_id": str(draft.id), "error": str(error)})
+        events.publish_sync(campaign.workspace_id, "safety.warning", {
+            "account_id": str(account.id),
+            "message": f"Delivery failed for an approved message: {str(error)[:200]}",
+            "health_score": float(account.health_score),
+        })
+        return False
+
+    draft.status = "sent"
+    draft.sent_at = datetime.utcnow()
+    account.sends_today += 1
+    account.sends_this_week += 1
+    if action_type == "connection_request":
+        account.connections_this_week += 1
+    session.add(SafetyLog(
+        account_id=account.id,
+        action_type=action_type,
+        details={"draft_id": str(draft.id), "campaign_id": str(campaign.id), **delivery_meta},
+        daily_count_at_time=account.sends_today,
+        weekly_count_at_time=account.sends_this_week,
+    ))
+
+    conversation = session.execute(
+        select(Conversation).where(
+            Conversation.campaign_id == campaign.id, Conversation.lead_id == draft.lead_id
+        ).limit(1)
+    ).scalar_one_or_none()
+    if conversation is None:
+        conversation = Conversation(campaign_id=campaign.id, lead_id=draft.lead_id)
+        session.add(conversation)
+        session.flush()
+    session.add(Message(conversation_id=conversation.id, sender_type="user", content=content))
+    conversation.last_message_at = datetime.utcnow()
+
+    if lead is not None and lead.status in ("new", "queued"):
+        lead.status = "contacted"
+    workspace = session.get(Workspace, campaign.workspace_id)
+    if workspace is not None:
+        workspace.current_month_usage += 1
+    metrics.bump_metric_sync(session, campaign.id, "messages_sent")
+    metrics.record_event_sync(session, campaign.id, "message_sent", {"draft_id": str(draft.id), "action_type": action_type})
+    return True
+
+
 @celery_app.task(name="app.tasks.dispatch_approved_drafts")
 def dispatch_approved_drafts() -> int:
-    """Deliver human-approved drafts whose scheduled time has arrived.
-
-    Delivery itself is a mock of the LinkedIn send integration — only messages
-    a human explicitly approved ever reach this point, and soft limits are
-    checked per account before each send."""
+    """Deliver human-approved drafts whose scheduled time has arrived."""
     session = get_sync_session()
     dispatched = 0
     try:
@@ -199,73 +281,25 @@ def dispatch_approved_drafts() -> int:
             .limit(100)
         ).scalars().all()
         for draft in due:
-            campaign = session.get(Campaign, draft.campaign_id)
-            if campaign is None or campaign.status != "running":
-                continue
-            step = session.get(SequenceStep, draft.sequence_step_id)
-            action_type = "connection_request" if step and step.step_type == "connection_request" else "message"
-            account = session.execute(
-                select(SendingAccount).where(
-                    SendingAccount.workspace_id == campaign.workspace_id,
-                    SendingAccount.status == "active",
-                ).order_by(SendingAccount.created_at).limit(1)
-            ).scalar_one_or_none()
-            if account is None:
-                continue
-            allowed, reason = safety.check_soft_block(account, action_type)
-            if not allowed:
-                # Push to tomorrow's window instead of failing the draft.
-                draft.scheduled_for = scheduling.next_send_slot(
-                    campaign.schedule_config, 0, now=datetime.utcnow().replace(hour=0, minute=0) + timedelta(days=1)
-                )
-                events.publish_sync(campaign.workspace_id, "safety.warning", {
-                    "account_id": str(account.id), "message": reason, "health_score": float(account.health_score),
-                })
-                continue
-            if reason:
-                events.publish_sync(campaign.workspace_id, "safety.warning", {
-                    "account_id": str(account.id), "message": reason, "health_score": float(account.health_score),
-                })
-
-            # Mock LinkedIn delivery of the approved message.
-            content = draft.human_edit or draft.ai_draft
-            draft.status = "sent"
-            draft.sent_at = datetime.utcnow()
-            account.sends_today += 1
-            account.sends_this_week += 1
-            if action_type == "connection_request":
-                account.connections_this_week += 1
-            session.add(SafetyLog(
-                account_id=account.id,
-                action_type=action_type,
-                details={"draft_id": str(draft.id), "campaign_id": str(campaign.id)},
-                daily_count_at_time=account.sends_today,
-                weekly_count_at_time=account.sends_this_week,
-            ))
-
-            conversation = session.execute(
-                select(Conversation).where(
-                    Conversation.campaign_id == campaign.id, Conversation.lead_id == draft.lead_id
-                ).limit(1)
-            ).scalar_one_or_none()
-            if conversation is None:
-                conversation = Conversation(campaign_id=campaign.id, lead_id=draft.lead_id)
-                session.add(conversation)
-                session.flush()
-            session.add(Message(conversation_id=conversation.id, sender_type="user", content=content))
-            conversation.last_message_at = datetime.utcnow()
-
-            lead = session.get(Lead, draft.lead_id)
-            if lead is not None and lead.status in ("new", "queued"):
-                lead.status = "contacted"
-            workspace = session.get(Workspace, campaign.workspace_id)
-            if workspace is not None:
-                workspace.current_month_usage += 1
-            metrics.bump_metric_sync(session, campaign.id, "messages_sent")
-            metrics.record_event_sync(session, campaign.id, "message_sent", {"draft_id": str(draft.id), "action_type": action_type})
-            dispatched += 1
+            if _dispatch_one(session, draft):
+                dispatched += 1
         session.commit()
         return dispatched
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.tasks.dispatch_draft_task")
+def dispatch_draft_task(draft_id: str) -> bool:
+    """Immediate dispatch of a single draft — the user clicked "Send now"."""
+    session = get_sync_session()
+    try:
+        draft = session.get(DraftQueueItem, uuid.UUID(draft_id))
+        if draft is None or draft.status not in ("approved", "edited_and_approved"):
+            return False
+        sent = _dispatch_one(session, draft, ignore_campaign_state=True)
+        session.commit()
+        return sent
     finally:
         session.close()
 

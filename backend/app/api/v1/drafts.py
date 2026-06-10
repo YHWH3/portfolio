@@ -197,6 +197,34 @@ async def approve_draft(
     return _to_out(draft)
 
 
+@router.post("/{draft_id}/send-now")
+async def send_draft_now(
+    draft_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    workspace=Depends(get_current_workspace),
+    _role: str = Depends(require_role("member")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The user explicitly pushes one message out immediately: approves it if
+    still pending, then dispatches without waiting for the schedule window.
+    Soft safety limits still apply at dispatch time."""
+    draft = await _get_draft(draft_id, workspace, db)
+    if draft.status in ("sent", "skipped", "failed"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Draft is already {draft.status}")
+    if draft.status == "pending_review":
+        edited = _approve(draft, user)
+        await metrics.bump_metric(db, draft.campaign_id, "drafts_approved")
+        if edited:
+            await metrics.bump_metric(db, draft.campaign_id, "drafts_edited")
+    draft.scheduled_for = datetime.utcnow()
+    await db.commit()
+
+    from app.tasks import dispatch_draft_task
+
+    dispatch_draft_task.delay(str(draft.id))
+    return {**_to_out(draft), "dispatch_queued": True}
+
+
 @router.post("/{draft_id}/skip")
 async def skip_draft(
     draft_id: uuid.UUID,
