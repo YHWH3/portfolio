@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     VOYAGE_API_KEY: str = ""
     EMBEDDING_DIM: int = 1024
 
+    # AI provider: "auto" | "api" | "claude_cli" | "mock".
+    # auto → api if ANTHROPIC_API_KEY is set, else claude_cli if the Claude
+    # Code CLI is on PATH (subscription auth), else mock.
+    AI_PROVIDER: str = "auto"
+    CLAUDE_CLI_PATH: str = "claude"
+
     JWT_SECRET: str = "dev-jwt-secret"
     JWT_REFRESH_SECRET: str = "dev-jwt-refresh-secret"
     ENCRYPTION_KEY: str = "dev-encryption-key"

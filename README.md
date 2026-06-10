@@ -27,7 +27,34 @@ This is not an autonomous bot. It is a drafting and campaign management tool tha
 - **Frontend**: Next.js 14 (App Router) + TypeScript + Tailwind CSS
 - **AI**: Anthropic Claude exclusively — Sonnet (`claude-sonnet-4-20250514`) for drafting, tone cloning, RAG answers, and suggested replies; Haiku (`claude-haiku-4-5-20251001`) for intent classification and sentiment scoring. Embeddings via Voyage AI.
 
-> **Offline mode:** if `ANTHROPIC_API_KEY` / `VOYAGE_API_KEY` are not set, every AI call falls back to a realistic deterministic mock so the entire product flow works locally with no external services. The same applies to the lead-enrichment provider and the LinkedIn delivery integration, which are mocked.
+> **Offline mode:** if no AI provider is configured, every AI call falls back to a realistic deterministic mock so the entire product flow works locally with no external services. The same applies to the lead-enrichment provider and the LinkedIn delivery integration, which are mocked.
+
+## AI providers — API key or your Claude subscription
+
+The provider is selected with `AI_PROVIDER` in `.env`:
+
+| Mode | What it uses | Needs |
+|---|---|---|
+| `api` | Anthropic API (Sonnet + Haiku via SDK) | `ANTHROPIC_API_KEY` |
+| `claude_cli` | **Your Claude Pro/Max subscription** through headless Claude Code (`claude -p`) | a `CLAUDE_CODE_OAUTH_TOKEN` |
+| `mock` | Deterministic local mocks | nothing |
+| `auto` (default) | `api` if a key is set, else `claude_cli` if the CLI is available, else `mock` | — |
+
+### Running on your Claude subscription (no API key)
+
+1. On your own machine, install Claude Code and log in with your Claude account, then run:
+   ```bash
+   claude setup-token
+   ```
+   This prints a long-lived OAuth token tied to your subscription.
+2. Put it in `.env`:
+   ```
+   AI_PROVIDER=claude_cli
+   CLAUDE_CODE_OAUTH_TOKEN=<paste the token here>
+   ```
+3. `docker compose up --build` — the backend image ships with the Claude Code CLI, and all drafting/classification calls now run on your subscription. Model selection (Sonnet for drafting, Haiku for intent classification) is passed through via `--model`.
+
+Notes: headless Claude Code doesn't expose temperature/max_tokens, so those tuning hints only apply in `api` mode. Subscription usage is fine for your own local instance; for production, multi-user, or commercial deployments use `api` mode — Anthropic doesn't permit offering your subscription's access to other users. Keep the token secret (treat it like a password), and never commit `.env`.
 
 ## Quick start
 
