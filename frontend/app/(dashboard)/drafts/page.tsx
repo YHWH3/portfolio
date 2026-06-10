@@ -46,6 +46,7 @@ function DraftCard({
   onApprove,
   onSkip,
   onSaveEdit,
+  onSendNow,
 }: {
   draft: Draft;
   selected: boolean;
@@ -53,10 +54,11 @@ function DraftCard({
   onApprove: () => Promise<void>;
   onSkip: () => Promise<void>;
   onSaveEdit: (text: string) => Promise<void>;
+  onSendNow: () => Promise<void>;
 }) {
   const [text, setText] = useState(draft.human_edit ?? draft.ai_draft);
   const [saving, setSaving] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [acting, setActing] = useState<'approve' | 'skip' | null>(null);
+  const [acting, setActing] = useState<'approve' | 'skip' | 'send' | null>(null);
   const debounceRef = useRef<number | null>(null);
   const edited = text !== draft.ai_draft;
 
@@ -179,6 +181,21 @@ function DraftCard({
               >
                 {acting === 'approve' ? 'Approving…' : 'Approve'}
               </button>
+              <button
+                onClick={async () => {
+                  setActing('send');
+                  try {
+                    await onSendNow();
+                  } finally {
+                    setActing(null);
+                  }
+                }}
+                disabled={acting !== null}
+                title="Approve and dispatch this message immediately"
+                className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:opacity-50"
+              >
+                {acting === 'send' ? 'Sending…' : 'Send now ↗'}
+              </button>
             </div>
           </div>
         </div>
@@ -263,6 +280,17 @@ export default function DraftsPage() {
       next.delete(id);
       return next;
     });
+  };
+
+  const sendNowDraft = async (draft: Draft) => {
+    try {
+      await api.post(`/api/v1/drafts/${draft.id}/send-now`);
+      toast.success(`Message to ${draft.lead.name} queued for immediate delivery`);
+      setDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+      void loadStats();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send draft');
+    }
   };
 
   const approveDraft = async (draft: Draft) => {
@@ -446,6 +474,7 @@ export default function DraftsPage() {
               selected={selected.has(draft.id)}
               onToggleSelect={() => toggleSelect(draft.id)}
               onApprove={() => approveDraft(draft)}
+              onSendNow={() => sendNowDraft(draft)}
               onSkip={() => skipDraft(draft)}
               onSaveEdit={(text) => saveEdit(draft, text)}
             />

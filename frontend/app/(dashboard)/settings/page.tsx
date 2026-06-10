@@ -3,16 +3,22 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useToast } from '@/components/Toast';
-import Badge from '@/components/Badge';
+import Badge, { StatusBadge } from '@/components/Badge';
 import Modal from '@/components/Modal';
 import Spinner, { PageLoader } from '@/components/Spinner';
 import EmptyState from '@/components/EmptyState';
-import type { TeamMember, ToneProfile, Workspace } from '@/lib/types';
+import type {
+  ConnectAccountResponse,
+  SendingAccount,
+  TeamMember,
+  ToneProfile,
+  Workspace,
+} from '@/lib/types';
 
 const inputCls =
   'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40';
 
-type Tab = 'workspace' | 'team' | 'tone';
+type Tab = 'workspace' | 'team' | 'tone' | 'linkedin';
 
 // ---------- Workspace tab ----------
 
@@ -580,6 +586,463 @@ function ToneTab() {
   );
 }
 
+// ---------- LinkedIn accounts tab ----------
+
+function HealthRing({ score }: { score: number }) {
+  const pct = Math.max(0, Math.min(100, score));
+  const color =
+    pct >= 70 ? 'text-emerald-500' : pct >= 40 ? 'text-amber-500' : 'text-rose-500';
+  const r = 16;
+  const c = 2 * Math.PI * r;
+  return (
+    <div className="relative h-11 w-11 shrink-0" title={`Health score: ${Math.round(pct)}`}>
+      <svg viewBox="0 0 40 40" className="h-11 w-11 -rotate-90">
+        <circle
+          cx="20"
+          cy="20"
+          r={r}
+          fill="none"
+          strokeWidth="4"
+          className="stroke-slate-200"
+        />
+        <circle
+          cx="20"
+          cy="20"
+          r={r}
+          fill="none"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeDasharray={`${(pct / 100) * c} ${c}`}
+          className={`stroke-current ${color}`}
+        />
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center text-[11px] font-semibold text-slate-700">
+        {Math.round(pct)}
+      </span>
+    </div>
+  );
+}
+
+function UsageBar({
+  label,
+  used,
+  limit,
+}: {
+  label: string;
+  used: number;
+  limit: number;
+}) {
+  const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+  const color =
+    pct >= 90 ? 'bg-rose-500' : pct >= 70 ? 'bg-amber-500' : 'bg-indigo-500';
+  return (
+    <div>
+      <div className="mb-1 flex justify-between text-xs">
+        <span className="text-slate-500">{label}</span>
+        <span className="font-medium text-slate-700">
+          {used} / {limit}
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+interface ConnectForm {
+  account_label: string;
+  linkedin_profile_url: string;
+  daily_send_limit: number;
+  weekly_connection_limit: number;
+}
+
+const emptyConnectForm: ConnectForm = {
+  account_label: '',
+  linkedin_profile_url: '',
+  daily_send_limit: 50,
+  weekly_connection_limit: 100,
+};
+
+function LinkedInTab() {
+  const toast = useToast();
+  const [accounts, setAccounts] = useState<SendingAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showConnect, setShowConnect] = useState(false);
+  const [form, setForm] = useState<ConnectForm>(emptyConnectForm);
+  const [connecting, setConnecting] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<SendingAccount | null>(null);
+  const [removing, setRemoving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setAccounts(await api.get<SendingAccount[]>('/api/v1/sending-accounts'));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to load LinkedIn accounts'
+      );
+    } finally {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const connect = async () => {
+    if (!form.account_label.trim()) {
+      toast.warning('Give the account a label (e.g. "Jane — main account").');
+      return;
+    }
+    if (!form.linkedin_profile_url.trim()) {
+      toast.warning('Paste the LinkedIn profile URL.');
+      return;
+    }
+    setConnecting(true);
+    try {
+      await api.post('/api/v1/sending-accounts', {
+        account_label: form.account_label.trim(),
+        linkedin_profile_url: form.linkedin_profile_url.trim(),
+        daily_send_limit: form.daily_send_limit,
+        weekly_connection_limit: form.weekly_connection_limit,
+      });
+      toast.success('LinkedIn account connected');
+      setShowConnect(false);
+      setForm(emptyConnectForm);
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to connect account');
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!removeTarget) return;
+    setRemoving(true);
+    try {
+      await api.delete(`/api/v1/sending-accounts/${removeTarget.id}`);
+      setAccounts((prev) => prev.filter((a) => a.id !== removeTarget.id));
+      toast.success(`Removed "${removeTarget.account_label}"`);
+      setRemoveTarget(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to remove account');
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  const [linkingId, setLinkingId] = useState<string | null>(null);
+  const [providerIdDraft, setProviderIdDraft] = useState('');
+
+  const startDeliveryLink = async (account: SendingAccount) => {
+    try {
+      const res = await api.post<ConnectAccountResponse>(
+        `/api/v1/sending-accounts/${account.id}/connect`,
+        { success_redirect_url: window.location.href }
+      );
+      window.open(res.url, '_blank', 'noopener');
+      setLinkingId(account.id);
+      setProviderIdDraft(account.provider_account_id ?? '');
+      toast.info(res.instructions);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to start delivery linking'
+      );
+      // Provider not configured server-side — still allow pasting an id manually.
+      setLinkingId(account.id);
+      setProviderIdDraft(account.provider_account_id ?? '');
+    }
+  };
+
+  const saveProviderId = async (account: SendingAccount) => {
+    try {
+      await api.put(`/api/v1/sending-accounts/${account.id}`, {
+        provider_account_id: providerIdDraft.trim() || null,
+        provider: providerIdDraft.trim() ? 'unipile' : 'manual',
+      });
+      toast.success(
+        providerIdDraft.trim()
+          ? 'Delivery account linked — approved sends will go out from your LinkedIn.'
+          : 'Delivery unlinked — back to manual sending.'
+      );
+      setLinkingId(null);
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save delivery account');
+    }
+  };
+
+  return (
+    <div className="max-w-3xl space-y-5">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm text-slate-500">
+          The LinkedIn accounts your campaigns send from, with safety limits and
+          health tracking per account.
+        </p>
+        <button
+          onClick={() => setShowConnect(true)}
+          className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+        >
+          + Connect account
+        </button>
+      </div>
+
+      <div className="flex gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+        <span className="text-base leading-none">ℹ️</span>
+        <p>
+          Connecting an account registers it for safety tracking and send
+          scheduling. By default you stay in manual mode: approved messages are
+          queued and tracked here, and you send them from LinkedIn itself. To have
+          your approved messages delivered from your LinkedIn automatically (still
+          one click per message), enable auto-delivery below — it uses a delivery
+          provider (Unipile) configured via UNIPILE_DSN / UNIPILE_API_KEY in .env.
+        </p>
+      </div>
+
+      {loading ? (
+        <PageLoader label="Loading accounts…" />
+      ) : accounts.length === 0 ? (
+        <EmptyState
+          icon="🔗"
+          title="No LinkedIn accounts connected"
+          description="Connect the account you send from so we can pace sends and watch its health."
+          action={
+            <button
+              onClick={() => setShowConnect(true)}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+            >
+              Connect account
+            </button>
+          }
+        />
+      ) : (
+        <div className="space-y-3">
+          {accounts.map((a) => (
+            <div
+              key={a.id}
+              className="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
+            >
+              <div className="flex items-start gap-4">
+                <HealthRing score={a.health_score} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {a.account_label}
+                    </p>
+                    <StatusBadge status={a.status} />
+                  </div>
+                  <a
+                    href={a.linkedin_profile_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-0.5 inline-block max-w-full truncate text-xs text-indigo-600 hover:underline"
+                  >
+                    {a.linkedin_profile_url} ↗
+                  </a>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <UsageBar
+                      label="Sends today"
+                      used={a.sends_today}
+                      limit={a.daily_send_limit}
+                    />
+                    <UsageBar
+                      label="Connections this week"
+                      used={a.connections_this_week}
+                      limit={a.weekly_connection_limit}
+                    />
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {a.delivery_connected ? (
+                      <Badge color="green">⚡ Auto-delivery on</Badge>
+                    ) : (
+                      <>
+                        <Badge color="slate">Manual sending</Badge>
+                        <button
+                          onClick={() => startDeliveryLink(a)}
+                          className="rounded-md border border-indigo-200 px-2.5 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
+                        >
+                          ⚡ Enable auto-delivery
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {linkingId === a.id && (
+                    <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/50 p-3">
+                      <p className="mb-2 text-xs text-slate-600">
+                        Sign in to LinkedIn on the page that opened, then paste the
+                        provider account ID from your Unipile dashboard here.
+                        Requires UNIPILE_DSN / UNIPILE_API_KEY in your .env.
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          value={providerIdDraft}
+                          onChange={(e) => setProviderIdDraft(e.target.value)}
+                          placeholder="Provider account ID"
+                          className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                        />
+                        <button
+                          onClick={() => saveProviderId(a)}
+                          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => setLinkingId(null)}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => setRemoveTarget(a)}
+                  className="shrink-0 rounded-md border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Connect modal */}
+      <Modal
+        open={showConnect}
+        onClose={() => setShowConnect(false)}
+        title="Connect a LinkedIn account"
+        footer={
+          <>
+            <button
+              onClick={() => setShowConnect(false)}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={connect}
+              disabled={connecting}
+              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60"
+            >
+              {connecting && (
+                <Spinner size="sm" className="border-white/40 border-t-white" />
+              )}
+              Connect
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Account label
+            </label>
+            <input
+              value={form.account_label}
+              onChange={(e) => setForm({ ...form, account_label: e.target.value })}
+              className={inputCls}
+              placeholder='e.g. "Jane — main account"'
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              LinkedIn profile URL
+            </label>
+            <input
+              value={form.linkedin_profile_url}
+              onChange={(e) =>
+                setForm({ ...form, linkedin_profile_url: e.target.value })
+              }
+              className={inputCls}
+              placeholder="https://linkedin.com/in/…"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Daily send limit
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={form.daily_send_limit}
+                onChange={(e) =>
+                  setForm({ ...form, daily_send_limit: Number(e.target.value) })
+                }
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Weekly connection limit
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={form.weekly_connection_limit}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    weekly_connection_limit: Number(e.target.value),
+                  })
+                }
+                className={inputCls}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-slate-400">
+            Conservative limits keep your account healthy — you can raise them later.
+          </p>
+        </div>
+      </Modal>
+
+      {/* Remove confirm modal */}
+      <Modal
+        open={removeTarget !== null}
+        onClose={() => setRemoveTarget(null)}
+        title="Remove LinkedIn account"
+        footer={
+          <>
+            <button
+              onClick={() => setRemoveTarget(null)}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={remove}
+              disabled={removing}
+              className="flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/40 disabled:opacity-60"
+            >
+              {removing && (
+                <Spinner size="sm" className="border-white/40 border-t-white" />
+              )}
+              Remove account
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          Remove{' '}
+          <span className="font-semibold text-slate-900">
+            {removeTarget?.account_label}
+          </span>{' '}
+          from this workspace? Campaigns will stop scheduling sends from it. This
+          doesn&apos;t touch the LinkedIn account itself.
+        </p>
+      </Modal>
+    </div>
+  );
+}
+
 // ---------- Page ----------
 
 export default function SettingsPage() {
@@ -589,6 +1052,7 @@ export default function SettingsPage() {
     { id: 'workspace', label: 'Workspace' },
     { id: 'team', label: 'Team' },
     { id: 'tone', label: 'Tone Profiles' },
+    { id: 'linkedin', label: 'LinkedIn Accounts' },
   ];
 
   return (
@@ -596,7 +1060,8 @@ export default function SettingsPage() {
       <div className="mb-5">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Settings</h1>
         <p className="text-sm text-slate-500">
-          Workspace, team and the voices your drafts are written in.
+          Workspace, team, the voices your drafts are written in, and your
+          LinkedIn accounts.
         </p>
       </div>
 
@@ -619,6 +1084,7 @@ export default function SettingsPage() {
       {tab === 'workspace' && <WorkspaceTab />}
       {tab === 'team' && <TeamTab />}
       {tab === 'tone' && <ToneTab />}
+      {tab === 'linkedin' && <LinkedInTab />}
     </div>
   );
 }

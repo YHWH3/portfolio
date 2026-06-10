@@ -62,6 +62,70 @@ export default function CampaignsPage() {
     }
   };
 
+  const [actingId, setActingId] = useState<string | null>(null);
+
+  const lifecycle = async (
+    c: Campaign,
+    action: 'launch' | 'pause' | 'resume'
+  ) => {
+    setActingId(c.id);
+    try {
+      await api.post(`/api/v1/campaigns/${c.id}/${action}`);
+      toast.success(
+        action === 'launch'
+          ? `"${c.name}" is live — drafts will start appearing in your review queue`
+          : action === 'pause'
+            ? `"${c.name}" paused`
+            : `"${c.name}" resumed`
+      );
+      load();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : `Failed to ${action} campaign`
+      );
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const lifecycleButton = (c: Campaign) => {
+    const busy = actingId === c.id;
+    if (c.status === 'draft' || c.status === 'ready') {
+      return (
+        <button
+          onClick={() => lifecycle(c, 'launch')}
+          disabled={busy}
+          className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
+        >
+          {busy ? 'Launching…' : '▶ Launch'}
+        </button>
+      );
+    }
+    if (c.status === 'running') {
+      return (
+        <button
+          onClick={() => lifecycle(c, 'pause')}
+          disabled={busy}
+          className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+        >
+          {busy ? 'Pausing…' : '⏸ Pause'}
+        </button>
+      );
+    }
+    if (c.status === 'paused') {
+      return (
+        <button
+          onClick={() => lifecycle(c, 'resume')}
+          disabled={busy}
+          className="rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+        >
+          {busy ? 'Resuming…' : '▶ Resume'}
+        </button>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="mx-auto max-w-5xl">
       <div className="mb-5 flex items-center justify-between">
@@ -149,9 +213,10 @@ export default function CampaignsPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div
-                      className="flex justify-end gap-2"
+                      className="flex items-center justify-end gap-2"
                       onClick={(e) => e.stopPropagation()}
                     >
+                      {lifecycleButton(c)}
                       <Link
                         href={`/campaigns/${c.id}/edit`}
                         className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"

@@ -269,6 +269,14 @@ export interface SendingAccount {
   connections_this_week: number;
   sends_this_week?: number;
   created_at?: string;
+  provider?: 'manual' | 'unipile';
+  provider_account_id?: string | null;
+  delivery_connected?: boolean;
+}
+
+export interface ConnectAccountResponse {
+  url: string;
+  instructions: string;
 }
 
 // ---------- Inbox ----------
