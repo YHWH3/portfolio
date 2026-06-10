@@ -87,6 +87,12 @@ interface WizardState {
 
 const ALL_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
+// The <input type="time"> gives "HH:MM"; the API wants an integer hour (0-23).
+function hourOf(timeStr: string, fallback: number): number {
+  const hour = parseInt((timeStr || '').split(':')[0], 10);
+  return Number.isFinite(hour) ? Math.min(23, Math.max(0, hour)) : fallback;
+}
+
 const inputCls =
   'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40';
 
@@ -275,11 +281,12 @@ export default function NewCampaignPage() {
         target_audience: state.target_audience.trim() || undefined,
         cta_type: state.cta_type,
         cta_value: state.cta_value.trim() || undefined,
-        daily_send_limit: state.daily_send_limit,
+        daily_send_limit: Number(state.daily_send_limit) || 25,
         schedule_config: {
-          working_hours_start: state.working_hours_start,
-          working_hours_end: state.working_hours_end,
-          working_days: state.working_days,
+          working_hours_start: hourOf(state.working_hours_start, 9),
+          working_hours_end: hourOf(state.working_hours_end, 18),
+          send_weekends:
+            state.working_days.includes('sat') || state.working_days.includes('sun'),
         },
       });
 
