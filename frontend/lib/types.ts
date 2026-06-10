@@ -115,6 +115,32 @@ export interface CampaignDetail extends Campaign {
   objection_handlers: ObjectionHandler[];
 }
 
+// ---------- AI campaign builder ----------
+
+export interface GeneratedStep {
+  step_order: number;
+  step_type: StepType;
+  message_template: string;
+  delay_days: number;
+}
+
+export interface ParsedBrief {
+  name: string;
+  objective: string;
+  target_audience: string;
+  cta_type: CtaType;
+  cta_value: string | null;
+  persona_id: string | null;
+  persona_name: string | null;
+  tone_profile_id: string | null;
+  daily_send_limit: number;
+  steps: GeneratedStep[];
+}
+
+export interface GeneratedSequence {
+  steps: GeneratedStep[];
+}
+
 export interface CampaignPerformance {
   drafts_generated: number;
   drafts_approved: number;
@@ -207,6 +233,42 @@ export interface LeadImportResult {
   imported: number;
   skipped: number;
   errors: string[];
+}
+
+export interface LeadImportPreview {
+  headers: string[];
+  sample_rows: Record<string, string>[];
+  suggested_mapping: Record<string, string>;
+  missing_required: string[];
+  total_rows: number;
+  target_fields: string[];
+}
+
+// ---------- ICP ----------
+
+export interface IcpProfile {
+  id: string;
+  titles: string[];
+  industries: string[];
+  company_sizes: string[];
+  geographies: string[];
+  exclusion_list: string[];
+}
+
+// ---------- Sending accounts ----------
+
+export interface SendingAccount {
+  id: string;
+  account_label: string;
+  linkedin_profile_url: string;
+  status: string;
+  health_score: number;
+  daily_send_limit: number;
+  sends_today: number;
+  weekly_connection_limit: number;
+  connections_this_week: number;
+  sends_this_week?: number;
+  created_at?: string;
 }
 
 // ---------- Inbox ----------

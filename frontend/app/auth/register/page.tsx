@@ -48,7 +48,7 @@ export default function RegisterPage() {
   };
 
   const inputCls =
-    'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200';
+    'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40';
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8">
@@ -66,7 +66,7 @@ export default function RegisterPage() {
         </div>
         <form
           onSubmit={onSubmit}
-          className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+          className="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm transition-shadow hover:shadow-md"
         >
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -136,7 +136,7 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60"
           >
             {submitting && <Spinner size="sm" className="border-white/40 border-t-white" />}
             Create account

@@ -10,7 +10,7 @@ import EmptyState from '@/components/EmptyState';
 import type { TeamMember, ToneProfile, Workspace } from '@/lib/types';
 
 const inputCls =
-  'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200';
+  'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40';
 
 type Tab = 'workspace' | 'team' | 'tone';
 
@@ -69,14 +69,14 @@ function WorkspaceTab() {
 
   return (
     <div className="max-w-2xl space-y-6">
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
         <h3 className="text-sm font-semibold text-slate-900">Workspace name</h3>
         <div className="mt-3 flex gap-2">
           <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
           <button
             onClick={save}
             disabled={saving}
-            className="flex shrink-0 items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="flex shrink-0 items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60"
           >
             {saving && <Spinner size="sm" className="border-white/40 border-t-white" />}
             Save
@@ -84,7 +84,7 @@ function WorkspaceTab() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
         <h3 className="text-sm font-semibold text-slate-900">Plan & usage</h3>
         <div className="mt-3 grid grid-cols-2 gap-4 text-sm">
           <div>
@@ -186,7 +186,7 @@ function TeamTab() {
 
   return (
     <div className="max-w-3xl space-y-5">
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
         <h3 className="text-sm font-semibold text-slate-900">Invite a teammate</h3>
         <div className="mt-3 flex flex-wrap gap-2">
           <input
@@ -194,7 +194,7 @@ function TeamTab() {
             value={inviteEmail}
             onChange={(e) => setInviteEmail(e.target.value)}
             placeholder="teammate@company.com"
-            className="min-w-[220px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+            className="min-w-[220px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
           />
           <select
             value={inviteRole}
@@ -208,7 +208,7 @@ function TeamTab() {
           <button
             onClick={invite}
             disabled={inviting}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60"
           >
             {inviting && <Spinner size="sm" className="border-white/40 border-t-white" />}
             Send invite
@@ -225,7 +225,7 @@ function TeamTab() {
           description="Invite teammates so they can review drafts and manage campaigns."
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
@@ -261,7 +261,7 @@ function TeamTab() {
                   <td className="px-4 py-3 text-right">
                     <button
                       onClick={() => remove(m)}
-                      className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                      className="rounded-md border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
                     >
                       Remove
                     </button>
@@ -389,7 +389,7 @@ function ToneTab() {
         </p>
         <button
           onClick={() => setShowCreate(true)}
-          className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+          className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
         >
           + New profile
         </button>
@@ -405,7 +405,7 @@ function ToneTab() {
           action={
             <button
               onClick={() => setShowCreate(true)}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
             >
               Create tone profile
             </button>
@@ -416,7 +416,7 @@ function ToneTab() {
           {profiles.map((p) => (
             <div
               key={p.id}
-              className="rounded-xl border border-slate-200 bg-white shadow-sm"
+              className="rounded-2xl border border-slate-200/60 bg-white shadow-sm"
             >
               <button
                 onClick={() => setExpanded(expanded === p.id ? null : p.id)}
@@ -480,7 +480,7 @@ function ToneTab() {
                         setTestPrompts((prev) => ({ ...prev, [p.id]: e.target.value }))
                       }
                       placeholder="e.g. Intro message to a VP of Sales at a fintech"
-                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                     />
                     <button
                       onClick={() => runTest(p)}
@@ -507,7 +507,7 @@ function ToneTab() {
                     )}
                     <button
                       onClick={() => remove(p)}
-                      className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                      className="rounded-md border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
                     >
                       Delete
                     </button>
@@ -535,7 +535,7 @@ function ToneTab() {
             <button
               onClick={create}
               disabled={creating}
-              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60"
             >
               {creating && <Spinner size="sm" className="border-white/40 border-t-white" />}
               Create profile
@@ -594,7 +594,7 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-4xl">
       <div className="mb-5">
-        <h1 className="text-xl font-semibold text-slate-900">Settings</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Settings</h1>
         <p className="text-sm text-slate-500">
           Workspace, team and the voices your drafts are written in.
         </p>

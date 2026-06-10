@@ -29,7 +29,7 @@ const STATUS_OPTIONS: ('' | LeadStatus)[] = [
 ];
 
 const inputCls =
-  'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200';
+  'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40';
 
 function ScoreBar({ score }: { score: number | null }) {
   if (score === null || score === undefined) {
@@ -222,7 +222,7 @@ export default function LeadsPage() {
     <div className="mx-auto max-w-6xl">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Leads</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Leads</h1>
           <p className="text-sm text-slate-500">
             Your prospect pool, scored against your ICP.
           </p>
@@ -243,14 +243,14 @@ export default function LeadsPage() {
           </button>
           <button
             onClick={() => setShowAdd(true)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
           >
             + Add lead
           </button>
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/60 bg-white p-3 shadow-sm transition-shadow hover:shadow-md">
         <select
           value={campaignFilter}
           onChange={(e) => {
@@ -307,14 +307,14 @@ export default function LeadsPage() {
           action={
             <button
               onClick={() => setShowImport(true)}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
             >
               Import CSV
             </button>
           }
         />
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto rounded-2xl border border-slate-200/60 bg-white shadow-sm">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
@@ -376,7 +376,7 @@ export default function LeadsPage() {
                       </button>
                       <button
                         onClick={() => removeLead(lead)}
-                        className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                        className="rounded-md border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
                       >
                         Delete
                       </button>
@@ -407,7 +407,7 @@ export default function LeadsPage() {
             <button
               onClick={addLead}
               disabled={savingLead}
-              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60"
             >
               {savingLead && (
                 <Spinner size="sm" className="border-white/40 border-t-white" />
@@ -518,7 +518,7 @@ export default function LeadsPage() {
             <button
               onClick={runImport}
               disabled={importing || !importFile}
-              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
             >
               {importing && (
                 <Spinner size="sm" className="border-white/40 border-t-white" />
@@ -579,7 +579,7 @@ export default function LeadsPage() {
               {importResult.errors.length > 0 && (
                 <div className="mt-2">
                   <p className="font-medium text-red-700">Errors:</p>
-                  <ul className="mt-1 list-inside list-disc text-xs text-red-600">
+                  <ul className="mt-1 list-inside list-disc text-xs text-rose-600">
                     {importResult.errors.slice(0, 10).map((e, i) => (
                       <li key={i}>{e}</li>
                     ))}

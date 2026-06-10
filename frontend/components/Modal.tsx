@@ -36,7 +36,7 @@ export default function Modal({
       }}
     >
       <div
-        className={`flex max-h-[90vh] w-full flex-col rounded-xl bg-white shadow-2xl ${
+        className={`flex max-h-[90vh] w-full flex-col rounded-2xl bg-white shadow-2xl ${
           wide ? 'max-w-2xl' : 'max-w-md'
         }`}
         role="dialog"

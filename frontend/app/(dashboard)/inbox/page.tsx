@@ -244,10 +244,11 @@ export default function InboxPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="mb-4 grid grid-cols-3 gap-4">
-        <StatCard label="Active conversations" value={stats ? stats.active : '—'} />
-        <StatCard label="Hot leads" value={stats ? stats.hot_leads : '—'} accent="red" />
+        <StatCard label="Active conversations" value={stats ? stats.active : '—'} icon="💬" />
+        <StatCard label="Hot leads" value={stats ? stats.hot_leads : '—'} accent="red" icon="🔥" />
         <StatCard
           label="Needs attention"
+          icon="⚠️"
           value={stats ? stats.needs_attention : '—'}
           accent="amber"
         />
@@ -255,7 +256,7 @@ export default function InboxPage() {
 
       <div className="flex min-h-0 flex-1 gap-4">
         {/* Left: conversation list */}
-        <div className="flex w-80 shrink-0 flex-col rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex w-80 shrink-0 flex-col rounded-2xl border border-slate-200/60 bg-white shadow-sm">
           <div className="space-y-2 border-b border-slate-200 p-3">
             <div className="flex flex-wrap gap-1">
               {STATUS_FILTERS.map((s) => (
@@ -330,7 +331,7 @@ export default function InboxPage() {
         </div>
 
         {/* Right: thread */}
-        <div className="flex min-w-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex min-w-0 flex-1 flex-col rounded-2xl border border-slate-200/60 bg-white shadow-sm">
           {!selectedId ? (
             <div className="flex flex-1 items-center justify-center">
               <EmptyState
@@ -440,7 +441,7 @@ export default function InboxPage() {
                     onChange={(e) => setReply(e.target.value)}
                     rows={3}
                     placeholder="Write a reply, or get AI suggestions and edit before sending…"
-                    className="flex-1 resize-y rounded-lg border border-slate-300 p-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                    className="flex-1 resize-y rounded-lg border border-slate-300 p-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   />
                   <div className="flex flex-col gap-2">
                     <button
@@ -458,7 +459,7 @@ export default function InboxPage() {
                     <button
                       onClick={sendReply}
                       disabled={sending || !reply.trim()}
-                      className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                      className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
                     >
                       {sending && (
                         <Spinner size="sm" className="border-white/40 border-t-white" />

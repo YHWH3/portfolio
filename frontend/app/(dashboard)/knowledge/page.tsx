@@ -116,7 +116,7 @@ export default function KnowledgePage() {
   return (
     <div className="mx-auto max-w-5xl">
       <div className="mb-5">
-        <h1 className="text-xl font-semibold text-slate-900">Knowledge base</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Knowledge base</h1>
         <p className="text-sm text-slate-500">
           Upload product docs, case studies and battle cards — the AI cites them when
           drafting and handling objections.
@@ -187,7 +187,7 @@ export default function KnowledgePage() {
                 {docs.map((doc) => (
                   <li
                     key={doc.id}
-                    className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
+                    className="flex items-center gap-3 rounded-2xl border border-slate-200/60 bg-white p-3 shadow-sm transition-shadow hover:shadow-md"
                   >
                     <span className="text-xl">📄</span>
                     <div className="min-w-0 flex-1">
@@ -217,7 +217,7 @@ export default function KnowledgePage() {
                     </Badge>
                     <button
                       onClick={() => deleteDoc(doc)}
-                      className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                      className="rounded-md border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
                     >
                       Delete
                     </button>
@@ -229,7 +229,7 @@ export default function KnowledgePage() {
         </div>
 
         {/* KB test chat */}
-        <div className="flex h-[520px] flex-col rounded-xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
+        <div className="flex h-[520px] flex-col rounded-2xl border border-slate-200/60 bg-white shadow-sm lg:col-span-2">
           <div className="border-b border-slate-200 px-4 py-3">
             <p className="text-sm font-semibold text-slate-900">Test the knowledge base</p>
             <p className="text-xs text-slate-500">
@@ -284,12 +284,12 @@ export default function KnowledgePage() {
                 if (e.key === 'Enter') ask();
               }}
               placeholder="Ask the knowledge base…"
-              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
             />
             <button
               onClick={ask}
               disabled={asking || !query.trim()}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
             >
               Ask
             </button>

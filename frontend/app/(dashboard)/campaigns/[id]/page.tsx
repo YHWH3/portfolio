@@ -105,7 +105,7 @@ export default function CampaignDetailPage() {
       <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold text-slate-900">{campaign.name}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{campaign.name}</h1>
             <StatusBadge status={campaign.status} />
           </div>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">{campaign.objective}</p>
@@ -160,7 +160,7 @@ export default function CampaignDetailPage() {
             <button
               disabled={actionBusy}
               onClick={archive}
-              className={`${btn} border-red-200 bg-white text-red-600 hover:bg-red-50`}
+              className={`${btn} border-rose-200 bg-white text-rose-600 hover:bg-rose-50`}
             >
               Archive
             </button>
@@ -209,7 +209,7 @@ export default function CampaignDetailPage() {
             />
           </div>
           {performance.top_performing_signals.length > 0 && (
-            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mt-4 rounded-2xl border border-slate-200/60 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
               <p className="mb-2 text-xs font-semibold uppercase text-slate-500">
                 Top performing personalization signals
               </p>
@@ -248,7 +248,7 @@ export default function CampaignDetailPage() {
             .map((s, i) => (
               <li
                 key={s.id}
-                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                className="rounded-2xl border border-slate-200/60 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
               >
                 <div className="flex items-center gap-3">
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">
@@ -290,7 +290,7 @@ export default function CampaignDetailPage() {
             .map((o) => (
               <div
                 key={o.id}
-                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                className="rounded-2xl border border-slate-200/60 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge color="amber">priority {o.priority}</Badge>

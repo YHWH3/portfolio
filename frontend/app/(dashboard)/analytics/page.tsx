@@ -229,22 +229,22 @@ export default function AnalyticsPage() {
   return (
     <div className="mx-auto max-w-5xl">
       <div className="mb-5">
-        <h1 className="text-xl font-semibold text-slate-900">Analytics</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Analytics</h1>
         <p className="text-sm text-slate-500">
           How your reviewed outreach is performing across campaigns.
         </p>
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-        <StatCard label="Messages sent" value={t.messages_sent} />
-        <StatCard label="Replies" value={t.replies_received} accent="indigo" />
+        <StatCard label="Messages sent" value={t.messages_sent} icon="📤" />
+        <StatCard label="Replies" value={t.replies_received} accent="indigo" icon="💬" />
         <StatCard
           label="Reply rate"
           value={`${(t.reply_rate * 100).toFixed(1)}%`}
           accent="green"
         />
-        <StatCard label="Meetings booked" value={t.meetings_booked} accent="green" />
-        <StatCard label="Drafts generated" value={t.drafts_generated} />
+        <StatCard label="Meetings booked" value={t.meetings_booked} accent="green" icon="📅" />
+        <StatCard label="Drafts generated" value={t.drafts_generated} icon="✍️" />
         <StatCard
           label="Drafts edited"
           value={`${t.drafts_edited_pct.toFixed(0)}%`}
@@ -253,14 +253,14 @@ export default function AnalyticsPage() {
         />
       </div>
 
-      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mt-6 rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
         <h2 className="mb-3 text-sm font-semibold text-slate-900">
           Sending & reply trend
         </h2>
         <TrendChart trend={dashboard.trend} />
       </div>
 
-      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mt-6 rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
         <h2 className="mb-1 text-sm font-semibold text-slate-900">
           Engagement heatmap
         </h2>
@@ -276,7 +276,7 @@ export default function AnalyticsPage() {
         )}
       </div>
 
-      <div className="mt-6 mb-10 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="mt-6 mb-10 overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-3">
           <h2 className="text-sm font-semibold text-slate-900">Campaign breakdown</h2>
         </div>

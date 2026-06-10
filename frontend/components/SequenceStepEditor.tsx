@@ -64,7 +64,7 @@ export function StepTemplateEditor({
         onChange={(e) => onChange(e.target.value)}
         rows={rows}
         placeholder="Hi {{first_name}}, noticed {{company}} just…"
-        className="w-full resize-y rounded-lg border border-slate-300 p-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+        className="w-full resize-y rounded-lg border border-slate-300 p-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
       />
       <div className="mt-1.5 flex flex-wrap gap-1.5">
         {SMART_VARIABLES.map((v) => (
@@ -129,7 +129,7 @@ export default function SequenceStepEditor({
       {steps.map((step, i) => (
         <div
           key={step.key}
-          className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+          className="rounded-2xl border border-slate-200/60 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
         >
           <div className="mb-3 flex flex-wrap items-center gap-3">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">
@@ -184,7 +184,7 @@ export default function SequenceStepEditor({
               <button
                 type="button"
                 onClick={() => remove(step.key)}
-                className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-600 hover:bg-rose-50"
                 title="Remove step"
               >
                 ✕

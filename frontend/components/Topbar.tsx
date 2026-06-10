@@ -42,7 +42,7 @@ export default function Topbar() {
           <span className="text-xs text-slate-400">▾</span>
         </button>
         {open && (
-          <div className="absolute right-0 top-11 z-40 w-56 rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+          <div className="absolute right-0 top-11 z-40 w-56 rounded-2xl border border-slate-200/60 bg-white py-1 shadow-lg">
             <div className="border-b border-slate-100 px-4 py-2">
               <p className="truncate text-sm font-medium text-slate-900">
                 {user ? `${user.first_name} ${user.last_name}` : ''}
@@ -51,7 +51,7 @@ export default function Topbar() {
             </div>
             <button
               onClick={logout}
-              className="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+              className="block w-full px-4 py-2 text-left text-sm text-rose-600 hover:bg-rose-50"
             >
               Sign out
             </button>

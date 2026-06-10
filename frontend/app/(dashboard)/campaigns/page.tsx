@@ -66,14 +66,14 @@ export default function CampaignsPage() {
     <div className="mx-auto max-w-5xl">
       <div className="mb-5 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Campaigns</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Campaigns</h1>
           <p className="text-sm text-slate-500">
             Outreach sequences your team designs once and reviews daily.
           </p>
         </div>
         <Link
           href="/campaigns/new"
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
         >
           + New campaign
         </Link>
@@ -108,14 +108,14 @@ export default function CampaignsPage() {
           action={
             <Link
               href="/campaigns/new"
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
             >
               Create campaign
             </Link>
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>

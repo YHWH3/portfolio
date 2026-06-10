@@ -85,7 +85,7 @@ function DraftCard({
 
   return (
     <div
-      className={`rounded-xl border bg-white p-5 shadow-sm transition-colors ${
+      className={`rounded-2xl border bg-white p-5 shadow-sm transition hover:shadow-md ${
         selected ? 'border-indigo-400 ring-1 ring-indigo-200' : 'border-slate-200'
       }`}
     >
@@ -136,7 +136,7 @@ function DraftCard({
               value={text}
               onChange={(e) => handleChange(e.target.value)}
               rows={5}
-              className="w-full resize-y rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm leading-relaxed focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              className="w-full resize-y rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm leading-relaxed focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
               aria-label="Draft message"
             />
             <div className="absolute bottom-2 right-2 flex items-center gap-2 text-[11px] text-slate-400">
@@ -175,7 +175,7 @@ function DraftCard({
                   }
                 }}
                 disabled={acting !== null}
-                className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
               >
                 {acting === 'approve' ? 'Approving…' : 'Approve'}
               </button>
@@ -346,7 +346,7 @@ export default function DraftsPage() {
     <div className="mx-auto max-w-4xl">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Review queue</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Review queue</h1>
           <p className="text-sm text-slate-500">
             Every AI draft waits here for your approval before it goes anywhere.
           </p>
@@ -363,15 +363,16 @@ export default function DraftsPage() {
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatCard
           label="Pending review"
+          icon="⏳"
           value={stats ? stats.pending_review : '—'}
           accent="amber"
         />
-        <StatCard label="Approved" value={stats ? stats.approved : '—'} accent="green" />
-        <StatCard label="Sent today" value={stats ? stats.sent_today : '—'} accent="indigo" />
-        <StatCard label="Skipped" value={stats ? stats.skipped : '—'} accent="slate" />
+        <StatCard label="Approved" value={stats ? stats.approved : '—'} accent="green" icon="✅" />
+        <StatCard label="Sent today" value={stats ? stats.sent_today : '—'} accent="indigo" icon="📤" />
+        <StatCard label="Skipped" value={stats ? stats.skipped : '—'} accent="slate" icon="↷" />
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="mt-5 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/60 bg-white p-3 shadow-sm transition-shadow hover:shadow-md">
         <select
           value={campaignFilter}
           onChange={(e) => {

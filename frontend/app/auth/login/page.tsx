@@ -52,7 +52,7 @@ export default function LoginPage() {
         </div>
         <form
           onSubmit={onSubmit}
-          className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+          className="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm transition-shadow hover:shadow-md"
         >
           <h2 className="text-lg font-semibold text-slate-900">
             {forgotMode ? 'Reset your password' : 'Sign in'}
@@ -67,7 +67,7 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                 placeholder="you@company.com"
               />
             </div>
@@ -81,7 +81,7 @@ export default function LoginPage() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   placeholder="••••••••"
                 />
               </div>
@@ -94,7 +94,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60"
             >
               {submitting && <Spinner size="sm" className="border-white/40 border-t-white" />}
               {forgotMode ? 'Send reset link' : 'Sign in'}

@@ -15,7 +15,7 @@ import SequenceStepEditor, {
 import type { CampaignDetail, ObjectionHandler } from '@/lib/types';
 
 const inputCls =
-  'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200';
+  'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40';
 
 interface ObjectionForm {
   id?: string;
@@ -207,12 +207,12 @@ export default function CampaignEditPage() {
       >
         ← Back to campaign
       </Link>
-      <h1 className="mt-2 text-xl font-semibold text-slate-900">
+      <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
         Edit: {campaign.name}
       </h1>
 
       {/* Basics */}
-      <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="mt-6 rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
         <h2 className="text-sm font-semibold text-slate-900">Details</h2>
         <div className="mt-3 space-y-3">
           <div>
@@ -236,7 +236,7 @@ export default function CampaignEditPage() {
             <button
               onClick={saveBasics}
               disabled={savingBasics}
-              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60"
             >
               {savingBasics && (
                 <Spinner size="sm" className="border-white/40 border-t-white" />
@@ -254,7 +254,7 @@ export default function CampaignEditPage() {
           <button
             onClick={saveSteps}
             disabled={savingSteps}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60"
           >
             {savingSteps && (
               <Spinner size="sm" className="border-white/40 border-t-white" />
@@ -301,7 +301,7 @@ export default function CampaignEditPage() {
               .map((o) => (
                 <div
                   key={o.id}
-                  className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                  className="rounded-2xl border border-slate-200/60 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-2">
@@ -328,7 +328,7 @@ export default function CampaignEditPage() {
                       </button>
                       <button
                         onClick={() => deleteObjection(o.id)}
-                        className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                        className="rounded-md border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
                       >
                         Delete
                       </button>
@@ -359,7 +359,7 @@ export default function CampaignEditPage() {
             <button
               onClick={saveObjection}
               disabled={savingObjection}
-              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60"
             >
               {savingObjection && (
                 <Spinner size="sm" className="border-white/40 border-t-white" />
