@@ -1,8 +1,10 @@
+import json
+import re
 import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,24 +15,32 @@ from app.models import (
     DailyMetric,
     Lead,
     ObjectionHandler,
+    Persona,
     SendingAccount,
     SequenceStep,
+    ToneProfile,
 )
 from app.schemas import (
+    CampaignBriefRequest,
+    CampaignBriefResponse,
     CampaignCreate,
     CampaignDetailOut,
     CampaignOut,
     CampaignUpdate,
+    GeneratedStep,
     ObjectionHandlerCreate,
     ObjectionHandlerOut,
     ObjectionHandlerUpdate,
     Paginated,
+    SequenceGenerateRequest,
+    SequenceGenerateResponse,
     SequenceStepCreate,
     SequenceStepOut,
     SequenceStepUpdate,
     StepReorderRequest,
     SuccessResponse,
 )
+from app.services import ai
 from app.services.analytics import compute_campaign_metrics
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
@@ -44,6 +54,216 @@ async def _get_campaign(campaign_id: uuid.UUID, workspace, db: AsyncSession, *, 
     if campaign is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
     return campaign
+
+
+SEQUENCE_GENERATOR_PROMPT = """You design LinkedIn outreach sequences that a human will review and edit.
+
+CAMPAIGN OBJECTIVE: {objective}
+TARGET AUDIENCE: {target_audience}
+PERSONA APPROACH: {persona}
+SENDER'S WRITING STYLE:
+{tone_addon}
+
+Produce exactly {num_steps} sequence steps as a JSON array. Each element:
+{{"step_order": <1-based int>, "step_type": "connection_request"|"message"|"follow_up", "message_template": "<2-4 sentences>", "delay_days": <int, 0 for the first step>}}
+
+Rules:
+- A typical 3-step arc: connection request → follow-up message → value-add message.
+- Templates MUST use these smart variables where natural: {{{{first_name}}}}, {{{{company}}}}, {{{{title}}}}, {{{{industry}}}}, {{{{personalization_hook}}}}, {{{{cta_link}}}}.
+- Connection requests stay under 280 characters.
+- Sound like a real person, not a template. No placeholder brackets like [Company].
+Return ONLY the JSON array."""
+
+
+def _mock_sequence(objective: str, num_steps: int) -> list[dict]:
+    goal = objective[:80].rstrip(".")
+    steps = [
+        {"step_order": 1, "step_type": "connection_request", "delay_days": 0,
+         "message_template": "Hi {{first_name}} — {{personalization_hook}} caught my eye. I work with {{title}}s in {{industry}} on " + goal + ". Would be glad to connect."},
+        {"step_order": 2, "step_type": "follow_up", "delay_days": 3,
+         "message_template": "Thanks for connecting, {{first_name}}. Curious how {{company}} is approaching this right now — we've helped similar teams with " + goal + ". Open to a quick exchange? {{cta_link}}"},
+        {"step_order": 3, "step_type": "message", "delay_days": 4,
+         "message_template": "{{first_name}}, one thing that's worked well for {{industry}} teams like {{company}}: leading with a concrete win story rather than a pitch. Happy to share the details — grab a slot here if useful: {{cta_link}}"},
+        {"step_order": 4, "step_type": "follow_up", "delay_days": 5,
+         "message_template": "Floating this back up, {{first_name}} — I know quarters get busy at {{company}}. If " + goal + " is still on your radar, the door's open: {{cta_link}}"},
+        {"step_order": 5, "step_type": "follow_up", "delay_days": 7,
+         "message_template": "Last note from me, {{first_name}} — if the timing's wrong I'll close the loop here. If it ever makes sense to revisit {{personalization_hook}}, you know where to find me."},
+    ]
+    return steps[:num_steps]
+
+
+@router.post("/generate-sequence", response_model=SequenceGenerateResponse)
+async def generate_sequence(
+    payload: SequenceGenerateRequest,
+    workspace=Depends(get_current_workspace),
+    _role: str = Depends(require_role("member")),
+    db: AsyncSession = Depends(get_db),
+):
+    persona = await db.get(Persona, payload.persona_id) if payload.persona_id else None
+    tone = None
+    if payload.tone_profile_id is not None:
+        tone = (await db.execute(
+            select(ToneProfile).where(ToneProfile.id == payload.tone_profile_id, ToneProfile.workspace_id == workspace.id)
+        )).scalar_one_or_none()
+
+    raw = await ai.complete(
+        system="You design B2B outreach sequences. Respond only with a valid JSON array.",
+        user=SEQUENCE_GENERATOR_PROMPT.format(
+            objective=payload.objective,
+            target_audience=payload.target_audience or "(not specified)",
+            persona=persona.system_prompt_template if persona else "Helpful peer reaching out with relevant value.",
+            tone_addon=(tone.system_prompt_addon if tone else None) or "Professional, warm, concise.",
+            num_steps=payload.num_steps,
+        ),
+        max_tokens=1500,
+        temperature=0.7,
+        mock=lambda: json.dumps(_mock_sequence(payload.objective, payload.num_steps)),
+    )
+    valid_types = {"connection_request", "message", "follow_up"}
+    try:
+        parsed = json.loads(ai.extract_json(raw))
+        steps = [
+            GeneratedStep(
+                step_order=i + 1,
+                step_type=s["step_type"] if s.get("step_type") in valid_types else "message",
+                message_template=str(s["message_template"]),
+                delay_days=max(0, int(s.get("delay_days", 0))),
+            )
+            for i, s in enumerate(parsed)
+            if isinstance(s, dict) and s.get("message_template")
+        ][: payload.num_steps]
+        if not steps:
+            raise ValueError("no usable steps")
+    except (json.JSONDecodeError, TypeError, ValueError, KeyError):
+        steps = [GeneratedStep(**s) for s in _mock_sequence(payload.objective, payload.num_steps)]
+    return SequenceGenerateResponse(steps=steps)
+
+
+BRIEF_PARSER_PROMPT = """A user described an outreach campaign in their own words. Turn it into a complete campaign configuration.
+
+USER'S DESCRIPTION:
+\"\"\"{brief}\"\"\"
+
+AVAILABLE PERSONAS (pick the best fit by name):
+{persona_list}
+
+Return ONLY a JSON object:
+{{
+  "name": "<short campaign name, max 6 words>",
+  "objective": "<one-sentence campaign objective>",
+  "target_audience": "<who is being contacted, or null>",
+  "cta_type": "booking_link" | "reply" | "custom",
+  "cta_value": "<booking URL if one appears in the description, otherwise a short reply ask>",
+  "persona": "<exact persona name from the list>",
+  "steps": [
+    {{"step_order": 1, "step_type": "connection_request"|"message"|"follow_up", "message_template": "<2-4 sentences>", "delay_days": <int>}},
+    ... exactly {num_steps} steps, typical arc: connection request → follow-up → value-add message
+  ]
+}}
+
+Template rules: use smart variables {{{{first_name}}}}, {{{{company}}}}, {{{{title}}}}, {{{{industry}}}}, {{{{personalization_hook}}}}, {{{{cta_link}}}} where natural; connection requests under 280 chars; sound human, no placeholder brackets."""
+
+PERSONA_KEYWORDS = [
+    ("Friendly Advisor", ["friendly", "warm", "relationship", "coach", "advisor", "helpful"]),
+    ("Direct Closer", ["direct", "close", "closing", "sales call", "high-ticket", "aggressive", "results"]),
+    ("Educational Guide", ["educat", "teach", "course", "webinar", "content", "insight", "learn"]),
+    ("Peer Colleague", ["founder", "peer", "startup", "casual", "community", "fellow"]),
+]
+
+URL_RE = re.compile(r"https?://\S+")
+
+
+def _mock_brief(brief: str, num_steps: int, personas: list[Persona]) -> dict:
+    lower = brief.lower()
+    persona_name = "Professional Consultant"
+    for name, keywords in PERSONA_KEYWORDS:
+        if any(k in lower for k in keywords):
+            persona_name = name
+            break
+    url_match = URL_RE.search(brief)
+    if url_match:
+        cta_type, cta_value = "booking_link", url_match.group(0).rstrip(".,)")
+    elif any(k in lower for k in ("call", "demo", "meeting", "book")):
+        cta_type, cta_value = "reply", "a quick reply to set up a call"
+    else:
+        cta_type, cta_value = "reply", "a short reply"
+    words = [w for w in re.sub(r"[^a-zA-Z0-9 ]", " ", brief).split() if len(w) > 2][:5]
+    audience_match = re.search(
+        r"(founders?|ceos?|ctos?|cmos?|vps?[a-z ]*|heads? of [a-z]+|directors?[a-z ]*|managers?|recruiters?|owners?)[^.,;]*",
+        lower,
+    )
+    return {
+        "name": (" ".join(words).title() or "New Campaign")[:60],
+        "objective": brief.strip()[:300],
+        "target_audience": audience_match.group(0).strip().capitalize() if audience_match else None,
+        "cta_type": cta_type,
+        "cta_value": cta_value,
+        "persona": persona_name if any(p.name == persona_name for p in personas) else (personas[0].name if personas else None),
+        "steps": _mock_sequence(brief.strip()[:120], num_steps),
+    }
+
+
+@router.post("/parse-brief", response_model=CampaignBriefResponse)
+async def parse_brief(
+    payload: CampaignBriefRequest,
+    workspace=Depends(get_current_workspace),
+    _role: str = Depends(require_role("member")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Conversational campaign creation: the user describes the campaign in
+    plain language; AI fills in every field of the wizard for review."""
+    personas = (await db.execute(
+        select(Persona).where(or_(Persona.workspace_id.is_(None), Persona.workspace_id == workspace.id))
+    )).scalars().all()
+    default_tone = (await db.execute(
+        select(ToneProfile).where(ToneProfile.workspace_id == workspace.id).order_by(ToneProfile.is_default.desc(), ToneProfile.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+
+    raw = await ai.complete(
+        system="You turn campaign descriptions into structured configurations. Respond only with valid JSON.",
+        user=BRIEF_PARSER_PROMPT.format(
+            brief=payload.brief,
+            persona_list="\n".join(f"- {p.name}: {p.system_prompt_template[:100]}" for p in personas),
+            num_steps=payload.num_steps,
+        ),
+        max_tokens=2000,
+        temperature=0.5,
+        mock=lambda: json.dumps(_mock_brief(payload.brief, payload.num_steps, personas)),
+    )
+    try:
+        data = json.loads(ai.extract_json(raw))
+        if not data.get("objective") or not isinstance(data.get("steps"), list) or not data["steps"]:
+            raise ValueError("incomplete parse")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        data = _mock_brief(payload.brief, payload.num_steps, personas)
+
+    persona = next((p for p in personas if p.name == data.get("persona")), None)
+    valid_types = {"connection_request", "message", "follow_up"}
+    steps = [
+        GeneratedStep(
+            step_order=i + 1,
+            step_type=s["step_type"] if s.get("step_type") in valid_types else "message",
+            message_template=str(s["message_template"]),
+            delay_days=max(0, int(s.get("delay_days", 0))),
+        )
+        for i, s in enumerate(data["steps"])
+        if isinstance(s, dict) and s.get("message_template")
+    ][: payload.num_steps]
+    if not steps:
+        steps = [GeneratedStep(**s) for s in _mock_sequence(data["objective"], payload.num_steps)]
+
+    cta_type = data.get("cta_type") if data.get("cta_type") in ("booking_link", "reply", "custom") else "reply"
+    return CampaignBriefResponse(
+        name=(data.get("name") or "New Campaign")[:255],
+        objective=data["objective"],
+        target_audience=data.get("target_audience"),
+        cta_type=cta_type,
+        cta_value=(data.get("cta_value") or None),
+        persona_id=persona.id if persona else None,
+        persona_name=persona.name if persona else None,
+        tone_profile_id=default_tone.id if default_tone else None,
+        steps=steps,
+    )
 
 
 @router.get("", response_model=Paginated)
@@ -209,6 +429,17 @@ async def activate_campaign(
     campaign.updated_at = datetime.utcnow()
     await db.commit()
     return campaign
+
+
+@router.post("/{campaign_id}/launch", response_model=CampaignOut)
+async def launch_campaign(
+    campaign_id: uuid.UUID,
+    workspace=Depends(get_current_workspace),
+    _role: str = Depends(require_role("member")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Alias of activate: validates readiness, sets status to running and started_at."""
+    return await activate_campaign(campaign_id, workspace, _role, db)
 
 
 @router.post("/{campaign_id}/pause", response_model=CampaignOut)

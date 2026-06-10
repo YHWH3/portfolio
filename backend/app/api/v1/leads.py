@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import uuid
 from datetime import datetime
 
@@ -23,6 +24,7 @@ from app.schemas import (
     SignalOut,
     SuccessResponse,
 )
+from app.services import csv_import
 
 router = APIRouter(tags=["leads"])
 
@@ -94,61 +96,92 @@ async def create_lead(
     return lead
 
 
+@router.post("/leads/import/preview")
+async def preview_import(
+    file: UploadFile = File(...),
+    workspace=Depends(get_current_workspace),
+    _role: str = Depends(require_role("member")),
+):
+    """Inspect a CSV before importing: detected columns, a suggested mapping to
+    lead fields, sample rows, and anything required that couldn't be placed —
+    so the UI can let the user fix the mapping instead of failing."""
+    headers, rows = csv_import.read_csv(await file.read())
+    if not headers:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Empty or unreadable CSV file")
+    sample = rows[:5]
+    mapping = csv_import.suggest_mapping(headers, sample)
+    return {
+        "headers": headers,
+        "sample_rows": sample,
+        "suggested_mapping": mapping,
+        "missing_required": csv_import.missing_required(mapping),
+        "total_rows": len(rows),
+        "target_fields": csv_import.TARGET_FIELDS,
+    }
+
+
 @router.post("/leads/import", response_model=LeadImportResult)
 async def import_leads(
     file: UploadFile = File(...),
     campaign_id: uuid.UUID | None = Form(default=None),
+    mapping: str | None = Form(default=None),
     workspace=Depends(get_current_workspace),
     _role: str = Depends(require_role("member")),
     db: AsyncSession = Depends(get_db),
 ):
-    raw = await file.read()
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = raw.decode("latin-1")
-    reader = csv.DictReader(io.StringIO(text))
-    if reader.fieldnames is None:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Empty CSV file")
-    headers = {h.strip().lower() for h in reader.fieldnames if h}
-    missing = REQUIRED_CSV_COLUMNS - headers
+    headers, rows = csv_import.read_csv(await file.read())
+    if not headers:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Empty or unreadable CSV file")
+
+    # Start from the auto-detected mapping; an explicit mapping from the UI
+    # (JSON of {lead_field: csv_column}) overrides per field.
+    effective = csv_import.suggest_mapping(headers, rows[:5])
+    if mapping:
+        try:
+            overrides = json.loads(mapping)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="mapping must be valid JSON")
+        for field, header in overrides.items():
+            if field in csv_import.TARGET_FIELDS and header in headers:
+                effective[field] = header
+            elif field in csv_import.TARGET_FIELDS and not header:
+                effective.pop(field, None)
+
+    missing = csv_import.missing_required(effective)
     if missing:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Missing required columns: {', '.join(sorted(missing))}",
+            detail=(
+                f"Couldn't find columns for: {', '.join(missing)}. "
+                f"Detected columns: {', '.join(headers)}. Use the column-mapping step to assign them."
+            ),
         )
 
     existing_urls = set((await db.execute(
         select(Lead.linkedin_url).where(Lead.workspace_id == workspace.id, Lead.linkedin_url.is_not(None))
     )).scalars().all())
 
+    custom_headers = [h for h in headers if h.strip().lower().startswith("custom_field_")]
     imported, skipped, errors = 0, 0, []
-    for row_number, raw_row in enumerate(reader, start=2):
-        row = {(k or "").strip().lower(): (v or "").strip() for k, v in raw_row.items()}
-        if not row.get("first_name") or not row.get("last_name") or not row.get("linkedin_url"):
+    for row_number, row in enumerate(rows, start=2):
+        data = csv_import.extract_lead(row, effective)
+        if not data["first_name"] or not data["linkedin_url"]:
             skipped += 1
-            errors.append(f"Row {row_number}: missing required values")
+            errors.append(f"Row {row_number}: missing name or LinkedIn URL")
             continue
-        if row["linkedin_url"] in existing_urls:
+        if data["linkedin_url"] in existing_urls:
             skipped += 1
             errors.append(f"Row {row_number}: duplicate linkedin_url")
             continue
-        existing_urls.add(row["linkedin_url"])
-        custom_fields = {key: row[key] for key in row if key.startswith("custom_field_") and row[key]}
+        existing_urls.add(data["linkedin_url"])
+        custom_fields = {h.strip().lower(): row[h] for h in custom_headers if row.get(h)}
         lead = Lead(
             workspace_id=workspace.id,
             campaign_id=campaign_id,
             source="csv_import",
-            first_name=row["first_name"],
-            last_name=row["last_name"],
-            name=f"{row['first_name']} {row['last_name']}",
-            linkedin_url=row["linkedin_url"],
-            title=row.get("title") or None,
-            company=row.get("company") or None,
-            industry=row.get("industry") or None,
-            location=row.get("location") or None,
-            email=row.get("email") or None,
+            name=f"{data['first_name']} {data['last_name']}".strip(),
             custom_fields=custom_fields,
+            **data,
         )
         db.add(lead)
         imported += 1

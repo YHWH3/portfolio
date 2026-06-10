@@ -208,6 +208,43 @@ class StepReorderRequest(BaseModel):
     step_ids: list[uuid.UUID]
 
 
+class SequenceGenerateRequest(BaseModel):
+    objective: str = Field(min_length=1)
+    target_audience: str | None = None
+    persona_id: uuid.UUID | None = None
+    tone_profile_id: uuid.UUID | None = None
+    num_steps: int = Field(default=3, ge=1, le=7)
+
+
+class GeneratedStep(BaseModel):
+    step_order: int
+    step_type: Literal["connection_request", "message", "follow_up"]
+    message_template: str
+    delay_days: int
+
+
+class SequenceGenerateResponse(BaseModel):
+    steps: list[GeneratedStep]
+
+
+class CampaignBriefRequest(BaseModel):
+    brief: str = Field(min_length=10)
+    num_steps: int = Field(default=3, ge=1, le=7)
+
+
+class CampaignBriefResponse(BaseModel):
+    name: str
+    objective: str
+    target_audience: str | None
+    cta_type: Literal["booking_link", "reply", "custom"]
+    cta_value: str | None
+    persona_id: uuid.UUID | None
+    persona_name: str | None
+    tone_profile_id: uuid.UUID | None
+    daily_send_limit: int = 50
+    steps: list[GeneratedStep]
+
+
 class ObjectionHandlerCreate(BaseModel):
     trigger_phrases: list[str] = Field(min_length=1)
     response_template: str = Field(min_length=1)

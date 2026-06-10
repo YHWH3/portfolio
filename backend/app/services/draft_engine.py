@@ -54,9 +54,10 @@ Draft the message now. Output ONLY the message text, no commentary.
 """
 
 
-def resolve_variables(template: str, lead: Lead, hooks: dict) -> str:
+def resolve_variables(template: str, lead: Lead, hooks: dict, campaign: Campaign | None = None) -> str:
     """Resolve smart variables ({{first_name}}, {{company}}, ...) against the lead."""
     custom = lead.custom_fields or {}
+    best_hook = hooks.get("signal") or hooks.get("recent_post") or hooks.get("company_news") or ""
     values = {
         "first_name": lead.first_name or (lead.name or "").split(" ")[0],
         "last_name": lead.last_name or "",
@@ -67,6 +68,8 @@ def resolve_variables(template: str, lead: Lead, hooks: dict) -> str:
         "recent_post_topic": hooks.get("recent_post", ""),
         "mutual_connection": hooks.get("mutual_connection", ""),
         "signal_hook": hooks.get("signal", ""),
+        "personalization_hook": best_hook,
+        "cta_link": (campaign.cta_value if campaign else "") or "",
     }
     for i in range(1, 6):
         values[f"custom_field_{i}"] = str(custom.get(f"custom_field_{i}", ""))
@@ -146,7 +149,7 @@ def generate_draft(session, campaign: Campaign, lead: Lead, step: SequenceStep, 
     # Stage 2 — prompt assembly
     recent_signals = "; ".join(filter(None, [hooks.get("recent_post") and f"posted about {hooks['recent_post']}",
                                              hooks.get("job_change"), hooks.get("company_news")])) or "none on record"
-    step_template = resolve_variables(step.message_template, lead, hooks)
+    step_template = resolve_variables(step.message_template, lead, hooks, campaign)
     system_prompt = DRAFT_SYSTEM_PROMPT.format(
         tone_profile_addon=(tone.system_prompt_addon if tone else None) or "Professional, warm, concise. No emoji.",
         campaign_objective=campaign.objective,

@@ -107,8 +107,9 @@ frontend/
 |---|---|
 | Auth | `POST /api/v1/auth/{register,login,refresh,forgot-password,reset-password}` |
 | Drafts | `POST /api/v1/drafts/generate`, `GET /api/v1/drafts`, `PUT /api/v1/drafts/{id}`, `POST /api/v1/drafts/{id}/{approve,skip}`, `POST /api/v1/drafts/bulk-approve` |
-| Campaigns | full CRUD + `activate/pause/resume/duplicate`, steps + reorder, objection handlers, performance |
-| Leads | CRUD, CSV import/export, enrichment, curated list, ICP definitions, signals |
+| Campaigns | full CRUD + `launch/activate/pause/resume/duplicate`, steps + reorder, objection handlers, performance, `POST /campaigns/parse-brief` (describe a campaign in plain language → AI prefills everything), `POST /campaigns/generate-sequence` (AI-drafted step templates) |
+| Leads | CRUD, smart CSV import (`POST /leads/import/preview` detects/suggests column mapping; `/leads/import` accepts an explicit mapping and splits full-name columns), export, enrichment, curated list, ICP definitions, signals |
+| Sending accounts | `GET/POST /sending-accounts`, `DELETE /sending-accounts/{id}` (also under `/safety/accounts` with limits/restrictions/history) |
 | Inbox | conversations, replies, prospect-message ingestion, priority, 3 AI suggestions, `WS /ws/inbox` |
 | Knowledge | upload (pdf/docx/txt), ingestion → pgvector, campaign sources, RAG chat |
 | Safety | dashboard, accounts, limits, restriction events, history, recommendations |
