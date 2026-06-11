@@ -149,9 +149,9 @@ export interface CampaignPerformance {
   reply_rate: number;
   positive_reply_rate: number;
   meetings_booked: number;
-  avg_reply_time_hours: number;
+  avg_reply_time_hours: number | null;
   top_performing_signals: string[];
-  account_health_avg: number;
+  account_health_avg: number | null;
 }
 
 // ---------- Pagination ----------

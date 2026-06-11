@@ -240,14 +240,14 @@ export default function AnalyticsPage() {
         <StatCard label="Replies" value={t.replies_received} accent="indigo" icon="💬" />
         <StatCard
           label="Reply rate"
-          value={`${(t.reply_rate * 100).toFixed(1)}%`}
+          value={`${(t.reply_rate ?? 0).toFixed(1)}%`}
           accent="green"
         />
         <StatCard label="Meetings booked" value={t.meetings_booked} accent="green" icon="📅" />
         <StatCard label="Drafts generated" value={t.drafts_generated} icon="✍️" />
         <StatCard
           label="Drafts edited"
-          value={`${t.drafts_edited_pct.toFixed(0)}%`}
+          value={`${(t.drafts_edited_pct ?? 0).toFixed(0)}%`}
           accent="amber"
           sub="before approval"
         />
@@ -313,7 +313,7 @@ export default function AnalyticsPage() {
                     {c.messages_sent}
                   </td>
                   <td className="px-5 py-3 text-right text-slate-700">
-                    {(c.reply_rate * 100).toFixed(1)}%
+                    {(c.reply_rate ?? 0).toFixed(1)}%
                   </td>
                   <td className="px-5 py-3 text-right text-slate-700">
                     {c.meetings_booked}

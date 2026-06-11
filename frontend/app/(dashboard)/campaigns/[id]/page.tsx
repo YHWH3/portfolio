@@ -183,18 +183,18 @@ export default function CampaignDetailPage() {
             />
             <StatCard
               label="Edited before approval"
-              value={`${performance.drafts_edited_pct.toFixed(0)}%`}
+              value={`${(performance.drafts_edited_pct ?? 0).toFixed(0)}%`}
               accent="amber"
             />
             <StatCard label="Messages sent" value={performance.messages_sent} />
             <StatCard
               label="Reply rate"
-              value={`${(performance.reply_rate * 100).toFixed(1)}%`}
+              value={`${(performance.reply_rate ?? 0).toFixed(1)}%`}
               accent="indigo"
             />
             <StatCard
               label="Positive replies"
-              value={`${(performance.positive_reply_rate * 100).toFixed(1)}%`}
+              value={`${(performance.positive_reply_rate ?? 0).toFixed(1)}%`}
               accent="green"
             />
             <StatCard
@@ -204,8 +204,16 @@ export default function CampaignDetailPage() {
             />
             <StatCard
               label="Avg reply time"
-              value={`${performance.avg_reply_time_hours.toFixed(1)}h`}
-              sub={`Account health avg: ${performance.account_health_avg.toFixed(0)}`}
+              value={
+                performance.avg_reply_time_hours != null
+                  ? `${performance.avg_reply_time_hours.toFixed(1)}h`
+                  : '—'
+              }
+              sub={
+                performance.account_health_avg != null
+                  ? `Account health avg: ${performance.account_health_avg.toFixed(0)}`
+                  : 'No replies yet'
+              }
             />
           </div>
           {performance.top_performing_signals.length > 0 && (
