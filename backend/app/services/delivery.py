@@ -144,6 +144,64 @@ async def deliver(account, lead, content: str, action_type: str) -> dict:
     return {"provider": "unipile", "delivered": True, "provider_user_id": provider_id}
 
 
+def fetch_profile_sync(account, lead) -> dict | None:
+    """Pull the prospect's live LinkedIn profile through the provider (used by
+    enrichment and connection-acceptance checks). Returns None when the
+    account isn't linked to real delivery."""
+    if not uses_real_delivery(account):
+        return None
+    identifier = lead.provider_member_id or linkedin_identifier(lead.linkedin_url)
+    if not identifier:
+        return None
+    with httpx.Client(timeout=TIMEOUT) as client:
+        response = client.get(
+            f"{_base()}/api/v1/users/{identifier}",
+            params={"account_id": account.provider_account_id, "linkedin_sections": "about,experience"},
+            headers=_headers(),
+        )
+        _raise_for(response, "Profile retrieval")
+        return response.json()
+
+
+def fetch_posts_sync(account, lead, limit: int = 5) -> list[dict]:
+    """Pull the prospect's recent LinkedIn posts through the provider."""
+    if not uses_real_delivery(account):
+        return []
+    identifier = lead.provider_member_id or linkedin_identifier(lead.linkedin_url)
+    if not identifier:
+        return []
+    with httpx.Client(timeout=TIMEOUT) as client:
+        response = client.get(
+            f"{_base()}/api/v1/users/{identifier}/posts",
+            params={"account_id": account.provider_account_id, "limit": limit},
+            headers=_headers(),
+        )
+        if response.status_code >= 400:
+            logger.warning("Posts retrieval failed (%s): %s", response.status_code, response.text[:200])
+            return []
+        items = response.json().get("items", [])
+    posts = []
+    for item in items[:limit]:
+        text = (item.get("text") or "").strip()
+        if not text:
+            continue
+        posts.append({
+            "topic": text[:120],
+            "posted_at": (item.get("date") or item.get("created_at") or "")[:10],
+            "engagement": item.get("reaction_counter", 0),
+        })
+    return posts
+
+
+FIRST_DEGREE_MARKERS = {"FIRST_DEGREE", "DISTANCE_1", "FIRST", "1"}
+
+
+def is_first_degree(profile: dict) -> bool:
+    """True when the profile is now a 1st-degree connection (request accepted)."""
+    distance = str(profile.get("network_distance") or profile.get("distance") or "").upper()
+    return distance in FIRST_DEGREE_MARKERS or profile.get("is_relationship") is True
+
+
 async def create_hosted_auth_link(success_redirect_url: str | None = None) -> str:
     """Returns a Unipile hosted-auth URL where the user logs into LinkedIn to
     link their account. After linking, the Unipile account id is pasted into

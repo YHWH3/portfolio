@@ -75,8 +75,17 @@ Rules:
 Return ONLY the JSON array."""
 
 
+def goal_phrase(text: str, limit: int = 70) -> str:
+    """Turn an objective into a phrase that reads naturally mid-sentence:
+    collapse whitespace, cut at a word boundary, lowercase the first letter."""
+    clean = re.sub(r"\s+", " ", (text or "").strip()).rstrip(".!,;: ")
+    if len(clean) > limit:
+        clean = clean[:limit].rsplit(" ", 1)[0].rstrip(".!,;: ")
+    return clean[:1].lower() + clean[1:] if clean else "what we discussed"
+
+
 def _mock_sequence(objective: str, num_steps: int) -> list[dict]:
-    goal = objective[:80].rstrip(".")
+    goal = goal_phrase(objective)
     steps = [
         {"step_order": 1, "step_type": "connection_request", "delay_days": 0,
          "message_template": "Hi {{first_name}} — {{personalization_hook}} caught my eye. I work with {{title}}s in {{industry}} on " + goal + ". Would be glad to connect."},

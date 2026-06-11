@@ -35,5 +35,9 @@ celery_app.conf.update(
             "task": "app.tasks.generate_followup_drafts",
             "schedule": crontab(minute=10),
         },
+        "check-connection-acceptances": {
+            "task": "app.tasks.check_connection_acceptances",
+            "schedule": crontab(minute="*/30"),
+        },
     },
 )

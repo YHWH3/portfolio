@@ -11,10 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_current_workspace, require_role
 from app.database import get_db
-from app.models import ICPDefinition, Lead, LinkedInSignal, User
+from app.models import Campaign, ICPDefinition, Lead, LinkedInSignal, User
 from app.schemas import (
     ICPCreate,
     ICPOut,
+    LeadBulkAssign,
     LeadCreate,
     LeadImportResult,
     LeadOut,
@@ -93,6 +94,10 @@ async def create_lead(
     lead = _make_lead(workspace.id, payload.model_dump(), source="manual")
     db.add(lead)
     await db.commit()
+
+    from app.tasks import enrich_lead_task
+
+    enrich_lead_task.delay(str(lead.id))
     return lead
 
 
@@ -163,6 +168,7 @@ async def import_leads(
 
     custom_headers = [h for h in headers if h.strip().lower().startswith("custom_field_")]
     imported, skipped, errors = 0, 0, []
+    new_leads: list[Lead] = []
     for row_number, row in enumerate(rows, start=2):
         data = csv_import.extract_lead(row, effective)
         if not data["first_name"] or not data["linkedin_url"]:
@@ -184,9 +190,40 @@ async def import_leads(
             **data,
         )
         db.add(lead)
+        new_leads.append(lead)
         imported += 1
     await db.commit()
+
+    # Enrichment (profile context, recent posts, signals) runs automatically
+    # so drafts have personalization material without a manual step.
+    from app.tasks import enrich_lead_task
+
+    for lead in new_leads:
+        enrich_lead_task.delay(str(lead.id))
     return LeadImportResult(imported=imported, skipped=skipped, errors=errors[:50])
+
+
+@router.post("/leads/bulk-assign")
+async def bulk_assign_leads(
+    payload: LeadBulkAssign,
+    workspace=Depends(get_current_workspace),
+    _role: str = Depends(require_role("member")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Assign a batch of existing leads to a campaign (used by the wizard)."""
+    campaign = (await db.execute(
+        select(Campaign).where(Campaign.id == payload.campaign_id, Campaign.workspace_id == workspace.id)
+    )).scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
+    leads = (await db.execute(
+        select(Lead).where(Lead.id.in_(payload.lead_ids), Lead.workspace_id == workspace.id)
+    )).scalars().all()
+    for lead in leads:
+        lead.campaign_id = payload.campaign_id
+        lead.updated_at = datetime.utcnow()
+    await db.commit()
+    return {"assigned": len(leads)}
 
 
 @router.get("/leads/curated", response_model=list[LeadOut])
@@ -297,6 +334,26 @@ async def archive_lead(
     lead.updated_at = datetime.utcnow()
     await db.commit()
     return SuccessResponse(detail="Lead archived.")
+
+
+@router.post("/leads/{lead_id}/connection-accepted", response_model=LeadOut)
+async def mark_connection_accepted(
+    lead_id: uuid.UUID,
+    workspace=Depends(get_current_workspace),
+    _role: str = Depends(require_role("member")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manual fallback: the user saw the prospect accept their connection
+    request on LinkedIn. Unlocks the next sequence step for this lead.
+    (With a linked delivery provider this is detected automatically.)"""
+    lead = await _get_lead(lead_id, workspace, db)
+    if lead.connection_accepted_at is None:
+        lead.connection_accepted_at = datetime.utcnow()
+        if lead.status == "contacted":
+            lead.status = "engaged"
+        lead.updated_at = datetime.utcnow()
+        await db.commit()
+    return lead
 
 
 @router.post("/leads/{lead_id}/enrich")

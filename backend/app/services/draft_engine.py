@@ -54,6 +54,14 @@ Draft the message now. Output ONLY the message text, no commentary.
 """
 
 
+def _goal_phrase(text: str, limit: int = 70) -> str:
+    """Objective as a phrase that reads naturally mid-sentence."""
+    clean = re.sub(r"\s+", " ", (text or "").strip()).rstrip(".!,;: ")
+    if len(clean) > limit:
+        clean = clean[:limit].rsplit(" ", 1)[0].rstrip(".!,;: ")
+    return clean[:1].lower() + clean[1:] if clean else "what we discussed"
+
+
 def resolve_variables(template: str, lead: Lead, hooks: dict, campaign: Campaign | None = None) -> str:
     """Resolve smart variables ({{first_name}}, {{company}}, ...) against the lead."""
     custom = lead.custom_fields or {}
@@ -110,12 +118,12 @@ def _mock_draft(lead: Lead, campaign: Campaign, step: SequenceStep, hooks: dict,
     if step.step_type == "connection_request":
         if opener_hook:
             return f"Hi {first} — your recent note on {opener_hook} resonated with what we're seeing in {lead.industry or 'the space'}. Would be glad to connect."
-        return f"Hi {first} — I work with {lead.industry or 'B2B'} leaders on {campaign.objective[:60].rstrip('.')}. Would be glad to connect."
+        return f"Hi {first} — I work with {lead.industry or 'B2B'} leaders on {_goal_phrase(campaign.objective, 60)}. Would be glad to connect."
     if step.step_type == "follow_up":
         cta = campaign.cta_value or "a quick chat"
         return (
             f"Hi {first}, just floating my last note back up — I know things move fast at {company}. "
-            f"If {campaign.objective[:50].rstrip('.')} is still on your radar, happy to share what's worked for similar teams. "
+            f"If {_goal_phrase(campaign.objective, 50)} is still on your radar, happy to share what's worked for similar teams. "
             f"Worth {cta if campaign.cta_type == 'reply' else 'a quick look at ' + cta}?"
         )
     hook_line = f"Saw your post about {hooks['recent_post']} — sharp take. " if hooks.get("recent_post") else (
@@ -129,7 +137,7 @@ def _mock_draft(lead: Lead, campaign: Campaign, step: SequenceStep, hooks: dict,
     }.get(campaign.cta_type or "reply", "Open to comparing notes?")
     return (
         f"Hi {first} — {hook_line}{mutual}"
-        f"We're helping {lead.title or 'leaders'} at companies like {company} with {campaign.objective[:70].rstrip('.')}. "
+        f"We're helping {lead.title or 'leaders'} at companies like {company} with {_goal_phrase(campaign.objective, 70)}. "
         f"{cta_line}"
     )
 

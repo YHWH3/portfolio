@@ -348,6 +348,7 @@ class LeadOut(ORMModel):
     icp_match_pct: float | None
     status: str
     custom_fields: dict
+    connection_accepted_at: datetime | None = None
     enriched_at: datetime | None
     created_at: datetime
 
@@ -356,6 +357,11 @@ class LeadImportResult(BaseModel):
     imported: int
     skipped: int
     errors: list[str]
+
+
+class LeadBulkAssign(BaseModel):
+    lead_ids: list[uuid.UUID] = Field(min_length=1)
+    campaign_id: uuid.UUID
 
 
 class LeadSearchRequest(BaseModel):

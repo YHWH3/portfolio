@@ -205,6 +205,10 @@ class Lead(Base):
     icp_match_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     status: Mapped[str] = mapped_column(String(50), default="new", server_default="new")
     custom_fields: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'"))
+    # Set when the prospect accepts our connection request; gates follow-up steps.
+    connection_accepted_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # The delivery provider's id for this person (filled when sending/enriching).
+    provider_member_id: Mapped[str | None] = mapped_column(String(255))
     enriched_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = ts_now()
     updated_at: Mapped[datetime] = ts_now()

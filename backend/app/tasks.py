@@ -75,7 +75,19 @@ def generate_followup_drafts() -> int:
                 if idx is None or idx + 1 >= len(steps):
                     continue
                 next_step = steps[idx + 1]
-                if sent.sent_at is None or datetime.utcnow() < sent.sent_at + timedelta(days=max(next_step.delay_days, 0)):
+                if sent.sent_at is None:
+                    continue
+                lead_row = session.get(Lead, sent.lead_id)
+                sent_step = steps[idx]
+                if sent_step.step_type == "connection_request":
+                    # A first message only goes out after the prospect accepts
+                    # the connection request; the delay counts from acceptance.
+                    if lead_row is None or lead_row.connection_accepted_at is None:
+                        continue
+                    delay_base = lead_row.connection_accepted_at
+                else:
+                    delay_base = sent.sent_at
+                if datetime.utcnow() < delay_base + timedelta(days=max(next_step.delay_days, 0)):
                     continue
                 existing = session.execute(
                     select(DraftQueueItem.id).where(
@@ -109,6 +121,48 @@ def generate_followup_drafts() -> int:
         session.close()
 
 
+def _live_enrichment(session, lead) -> dict | None:
+    """Enrich from the prospect's real LinkedIn profile via the linked
+    delivery provider. Returns None when no linked account is available."""
+    account = session.execute(
+        select(SendingAccount).where(
+            SendingAccount.workspace_id == lead.workspace_id,
+            SendingAccount.status == "active",
+        ).order_by(SendingAccount.created_at).limit(1)
+    ).scalar_one_or_none()
+    if account is None or not delivery.uses_real_delivery(account):
+        return None
+    try:
+        profile = delivery.fetch_profile_sync(account, lead)
+    except delivery.DeliveryError as error:
+        logger.warning("Live enrichment failed for lead %s: %s", lead.id, error)
+        return None
+    if not profile:
+        return None
+    if profile.get("provider_id"):
+        lead.provider_member_id = profile["provider_id"]
+    experiences = profile.get("work_experience") or profile.get("experience") or []
+    current = experiences[0] if experiences else {}
+    posts = delivery.fetch_posts_sync(account, lead)
+    signals = []
+    if posts:
+        signals.append({
+            "signal_type": "post_engagement",
+            "signal_data": {"summary": f"Recently posted about {posts[0]['topic'][:80]}", "topic": posts[0]["topic"]},
+            "relevance_score": 0.85,
+        })
+    return {
+        "title": current.get("position") or current.get("title") or lead.title,
+        "industry": lead.industry,
+        "headline": profile.get("headline") or lead.headline,
+        "about_summary": profile.get("summary") or profile.get("about") or lead.about_summary,
+        "recent_posts": posts,
+        "mutual_connections": lead.mutual_connections or [],
+        "email": lead.email,
+        "signals": signals,
+    }
+
+
 @celery_app.task(name="app.tasks.enrich_lead_task")
 def enrich_lead_task(lead_id: str) -> bool:
     from app.services.quality import compute_quality_score
@@ -118,7 +172,9 @@ def enrich_lead_task(lead_id: str) -> bool:
         lead = session.get(Lead, uuid.UUID(lead_id))
         if lead is None:
             return False
-        data = enrichment.enrich_lead_data(lead)
+        # Prefer the prospect's real profile (linked delivery provider); fall
+        # back to the deterministic local provider.
+        data = _live_enrichment(session, lead) or enrichment.enrich_lead_data(lead)
         lead.title = lead.title or data["title"]
         lead.industry = lead.industry or data["industry"]
         lead.headline = data["headline"]
@@ -219,6 +275,8 @@ def _dispatch_one(session, draft: DraftQueueItem, *, ignore_campaign_state: bool
     lead = session.get(Lead, draft.lead_id)
     try:
         delivery_meta = delivery.deliver_sync(account, lead, content, action_type)
+        if lead is not None and delivery_meta.get("provider_user_id"):
+            lead.provider_member_id = delivery_meta["provider_user_id"]
     except delivery.DeliveryError as error:
         draft.status = "failed"
         metrics.record_event_sync(session, campaign.id, "delivery_failed", {"draft_id": str(draft.id), "error": str(error)})
@@ -300,6 +358,63 @@ def dispatch_draft_task(draft_id: str) -> bool:
         sent = _dispatch_one(session, draft, ignore_campaign_state=True)
         session.commit()
         return sent
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.tasks.check_connection_acceptances")
+def check_connection_acceptances() -> int:
+    """For leads with a sent connection request and no recorded acceptance,
+    poll the delivery provider: when the prospect is now a 1st-degree
+    connection, record acceptance (which unlocks the next sequence step).
+    Accounts without real delivery rely on the manual 'mark accepted' action."""
+    session = get_sync_session()
+    accepted = 0
+    try:
+        pending = session.execute(
+            select(Lead)
+            .join(DraftQueueItem, DraftQueueItem.lead_id == Lead.id)
+            .join(SequenceStep, SequenceStep.id == DraftQueueItem.sequence_step_id)
+            .where(
+                DraftQueueItem.status == "sent",
+                SequenceStep.step_type == "connection_request",
+                Lead.connection_accepted_at.is_(None),
+            )
+            .distinct()
+            .limit(200)
+        ).scalars().all()
+        accounts_by_workspace: dict = {}
+        for lead in pending:
+            account = accounts_by_workspace.get(lead.workspace_id)
+            if account is None:
+                account = session.execute(
+                    select(SendingAccount).where(
+                        SendingAccount.workspace_id == lead.workspace_id,
+                        SendingAccount.status == "active",
+                    ).order_by(SendingAccount.created_at).limit(1)
+                ).scalar_one_or_none()
+                accounts_by_workspace[lead.workspace_id] = account
+            if account is None or not delivery.uses_real_delivery(account):
+                continue
+            try:
+                profile = delivery.fetch_profile_sync(account, lead)
+            except delivery.DeliveryError as error:
+                logger.warning("Acceptance check failed for lead %s: %s", lead.id, error)
+                continue
+            if profile and delivery.is_first_degree(profile):
+                lead.connection_accepted_at = datetime.utcnow()
+                if lead.status == "contacted":
+                    lead.status = "engaged"
+                session.add(LinkedInSignal(
+                    lead_id=lead.id,
+                    signal_type="new_connection",
+                    signal_data={"summary": "Accepted your connection request"},
+                    relevance_score=0.9,
+                ))
+                metrics.record_event_sync(session, lead.campaign_id, "connection_accepted", {"lead_id": str(lead.id)})
+                accepted += 1
+        session.commit()
+        return accepted
     finally:
         session.close()
 
