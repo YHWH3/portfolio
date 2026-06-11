@@ -45,11 +45,14 @@ from playwright.sync_api import Page, sync_playwright
 # ==========================================
 STATE_FILE = os.environ.get("LINKEDIN_STATE_FILE", "linkedin_state.json")
 HEADLESS = os.environ.get("HEADLESS", "false").lower() == "true"
-# Safety default: draft everything but do NOT click the final send/connect.
-DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"
+# Sends for real by default. Set DRY_RUN=true to rehearse without clicking send.
+DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 MAX_ACTIONS_PER_RUN = int(os.environ.get("MAX_ACTIONS_PER_RUN", "15"))
 COOLDOWN_MIN_MINUTES = float(os.environ.get("COOLDOWN_MIN_MINUTES", "8"))
 COOLDOWN_MAX_MINUTES = float(os.environ.get("COOLDOWN_MAX_MINUTES", "20"))
+# Automatic mode: keep polling the app queue and deliver as drafts get approved.
+LOOP = os.environ.get("LOOP", "false").lower() == "true"
+POLL_INTERVAL_MINUTES = float(os.environ.get("POLL_INTERVAL_MINUTES", "15"))
 
 # --from-api settings
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
@@ -286,18 +289,41 @@ def load_actions(args) -> tuple[list[Action], CopilotApi | None]:
     return actions, None
 
 
+def deliver_batch(page, actions: list[Action], api: "CopilotApi | None") -> int:
+    """Process one batch of actions with cooldowns; report results to the app."""
+    success = 0
+    for index, action in enumerate(actions):
+        logger.info("-" * 50)
+        ok = process_action(page, action)
+        if ok:
+            success += 1
+            if api and action.draft_id and not DRY_RUN:
+                api.mark_sent(action.draft_id)
+        elif api and action.draft_id and not DRY_RUN:
+            api.mark_failed(action.draft_id)
+        # Cooldown between profiles — skip it after the final one.
+        if index < len(actions) - 1:
+            minutes = random.uniform(COOLDOWN_MIN_MINUTES, COOLDOWN_MAX_MINUTES)
+            logger.info("Cooling down %.1f min before the next profile...", minutes)
+            time.sleep(minutes * 60)
+    return success
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Local LinkedIn browser agent")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--from-api", action="store_true", help="Pull approved drafts from the running Copilot app")
     group.add_argument("--leads-file", help="Path to a JSON file of {url, action, message}")
+    parser.add_argument("--loop", action="store_true",
+                        help="Run automatically: keep polling the app queue and deliver as drafts are approved")
     args = parser.parse_args()
 
+    loop_mode = (args.loop or LOOP) and args.from_api
+    if (args.loop or LOOP) and not args.from_api:
+        logger.error("--loop only works with --from-api.")
+        sys.exit(1)
+
     actions, api = load_actions(args)
-    actions = actions[:MAX_ACTIONS_PER_RUN]
-    if not actions:
-        logger.info("Nothing to do. Exiting.")
-        return
     if DRY_RUN:
         logger.warning("DRY_RUN is ON — drafting only, nothing will actually be sent. "
                        "Set DRY_RUN=false to send for real.")
@@ -313,27 +339,29 @@ def main() -> None:
         context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
         page = context.new_page()
 
-        success = 0
         try:
             ensure_logged_in(context, page)
-            for index, action in enumerate(actions):
-                logger.info("-" * 50)
-                ok = process_action(page, action)
-                if ok:
-                    success += 1
-                    if api and action.draft_id and not DRY_RUN:
-                        api.mark_sent(action.draft_id)
-                elif api and action.draft_id and not DRY_RUN:
-                    api.mark_failed(action.draft_id)
-
-                # Cooldown between profiles — skip it after the final one.
-                if index < len(actions) - 1:
-                    minutes = random.uniform(COOLDOWN_MIN_MINUTES, COOLDOWN_MAX_MINUTES)
-                    logger.info("Cooling down %.1f min before the next profile...", minutes)
-                    time.sleep(minutes * 60)
-            logger.info("Done. Delivered %d of %d.", success, len(actions))
+            if loop_mode:
+                logger.info("Automatic mode: polling the approved queue every %.0f min. Ctrl+C to stop.",
+                            POLL_INTERVAL_MINUTES)
+                while True:
+                    batch = (api.fetch_queue() if api else [])[:MAX_ACTIONS_PER_RUN]
+                    if batch:
+                        logger.info("Delivering %d approved item(s).", len(batch))
+                        deliver_batch(page, batch, api)
+                    else:
+                        logger.info("Queue empty — nothing approved yet.")
+                    logger.info("Sleeping %.0f min before the next check...", POLL_INTERVAL_MINUTES)
+                    time.sleep(POLL_INTERVAL_MINUTES * 60)
+            else:
+                batch = actions[:MAX_ACTIONS_PER_RUN]
+                if not batch:
+                    logger.info("Nothing to do. Exiting.")
+                else:
+                    done = deliver_batch(page, batch, api)
+                    logger.info("Done. Delivered %d of %d.", done, len(batch))
         except KeyboardInterrupt:
-            logger.info("Interrupted by user.")
+            logger.info("Interrupted by user. Stopping.")
         finally:
             logger.info("Saving session and cleaning up...")
             try:

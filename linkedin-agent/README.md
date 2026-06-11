@@ -17,8 +17,9 @@ account, at your own risk. If account safety matters to you, prefer the official
 **Unipile** delivery integration (Settings → LinkedIn Accounts → Enable
 auto-delivery), which uses a sanctioned API.
 
-`DRY_RUN` is **ON by default** — the agent opens profiles and fills in messages
-but does **not** click the final Send/Connect until you explicitly turn it off.
+By default the agent **sends for real**. Set `DRY_RUN=true` to rehearse (it opens
+profiles and fills in messages but never clicks the final Send/Connect) — do a
+dry run at least once to confirm the selectors work on your account.
 
 ## Setup
 
@@ -40,10 +41,23 @@ inbox, and safety counters stay correct). It only ever sees messages you clicked
 export API_URL=http://localhost:8000
 export API_EMAIL=you@example.com
 export API_PASSWORD=your-app-password
-export DRY_RUN=true        # set to false when you're ready to actually send
 
+# One pass over whatever is approved right now:
 python agent.py --from-api
+
+# Fully automatic: keep running, deliver new approvals as they appear:
+python agent.py --from-api --loop
 ```
+
+In `--loop` mode the agent stays open, checks the approved queue every
+`POLL_INTERVAL_MINUTES` (default 15), delivers anything new with the usual
+cooldowns between profiles, and reports each result back to the app. It keeps
+going until you stop it with Ctrl+C. This is the "set it and forget it" mode:
+you just keep approving drafts in the app and they go out from your LinkedIn
+automatically.
+
+> Tip: do one `DRY_RUN=true` pass first to confirm the LinkedIn selectors work
+> on your account, then drop the flag to send for real.
 
 Flow it follows, matching the app's model:
 - `connection_request` steps → sends a connection request (with your approved note).
@@ -63,9 +77,11 @@ Each entry: `{"url": "...", "action": "connection_request" | "message", "message
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DRY_RUN` | `true` | When true, never clicks the final send/connect |
+| `DRY_RUN` | `false` | When true, never clicks the final send/connect (rehearsal) |
+| `LOOP` | `false` | Same as `--loop`: run automatically and keep polling |
+| `POLL_INTERVAL_MINUTES` | `15` | How often loop mode checks for newly approved drafts |
 | `HEADLESS` | `false` | Keep false so you can watch it and pass any 2FA/checkpoint |
-| `MAX_ACTIONS_PER_RUN` | `15` | Hard cap per run |
+| `MAX_ACTIONS_PER_RUN` | `15` | Hard cap per cycle |
 | `COOLDOWN_MIN_MINUTES` / `COOLDOWN_MAX_MINUTES` | `8` / `20` | Random wait between profiles |
 | `LINKEDIN_STATE_FILE` | `linkedin_state.json` | Where the logged-in session is cached |
 | `API_URL` / `API_EMAIL` / `API_PASSWORD` | — | For `--from-api` |
