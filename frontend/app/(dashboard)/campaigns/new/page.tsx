@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useToast } from '@/components/Toast';
@@ -10,6 +11,8 @@ import SequenceStepEditor, {
   EditableStep,
   STEP_TYPE_LABELS,
 } from '@/components/SequenceStepEditor';
+import LeadPicker from '@/components/LeadPicker';
+import { LeadImportFlowHandle } from '@/components/LeadImportFlow';
 import type {
   Campaign,
   CtaType,
@@ -18,6 +21,7 @@ import type {
   KbDocument,
   ParsedBrief,
   Persona,
+  SendingAccount,
   ToneProfile,
 } from '@/lib/types';
 
@@ -26,10 +30,23 @@ const WIZARD_STEPS = [
   'Basics',
   'Voice',
   'Sequence',
+  'Leads',
   'Knowledge',
   'Send & CTA',
   'Review',
 ];
+
+// Step indices (kept in one place so adding a step doesn't break validation).
+const STEP = {
+  describe: 0,
+  basics: 1,
+  voice: 2,
+  sequence: 3,
+  leads: 4,
+  knowledge: 5,
+  sendCta: 6,
+  review: 7,
+} as const;
 
 interface BriefPreset {
   title: string;
@@ -76,6 +93,7 @@ interface WizardState {
   persona_id: string;
   tone_profile_id: string;
   steps: EditableStep[];
+  lead_ids: string[];
   cta_type: CtaType;
   cta_value: string;
   daily_send_limit: number;
@@ -127,6 +145,13 @@ export default function NewCampaignPage() {
   const [kbLoading, setKbLoading] = useState(true);
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
 
+  // Sending accounts (for the Review-step connection status)
+  const [sendingAccounts, setSendingAccounts] = useState<SendingAccount[]>([]);
+
+  // Import-flow handle for the Leads step (drives the CSV import action buttons)
+  const [leadImportHandle, setLeadImportHandle] =
+    useState<LeadImportFlowHandle | null>(null);
+
   const [state, setState] = useState<WizardState>({
     name: '',
     objective: '',
@@ -134,6 +159,7 @@ export default function NewCampaignPage() {
     persona_id: '',
     tone_profile_id: '',
     steps: [],
+    lead_ids: [],
     cta_type: 'reply',
     cta_value: '',
     daily_send_limit: 25,
@@ -169,6 +195,10 @@ export default function NewCampaignPage() {
         )
       )
       .finally(() => setKbLoading(false));
+    api
+      .get<SendingAccount[]>('/api/v1/sending-accounts')
+      .then(setSendingAccounts)
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -236,16 +266,16 @@ export default function NewCampaignPage() {
   };
 
   const validateStep = (): string | null => {
-    if (stepIndex === 1) {
+    if (stepIndex === STEP.basics) {
       if (!state.name.trim()) return 'Give the campaign a name.';
       if (!state.objective.trim()) return 'Tell us what you want to happen.';
     }
-    if (stepIndex === 3) {
+    if (stepIndex === STEP.sequence) {
       if (state.steps.length === 0) return 'Add at least one message step.';
       if (state.steps.some((s) => !s.message_template.trim()))
         return 'Every step needs a message.';
     }
-    if (stepIndex === 5) {
+    if (stepIndex === STEP.sendCta) {
       if (state.cta_type !== 'reply' && !state.cta_value.trim())
         return 'Add your link (or what you want people to do).';
       if (state.daily_send_limit < 1) return 'Daily message cap must be at least 1.';
@@ -271,6 +301,14 @@ export default function NewCampaignPage() {
   };
 
   const create = async () => {
+    // Activation needs at least one lead — warn before creating (backend enforces
+    // this too, but surfacing it early avoids a half-created activation failure).
+    if (state.activate_now && state.lead_ids.length === 0) {
+      toast.warning(
+        'Activation needs at least one lead. Add leads in the Leads step, or uncheck “Activate immediately”.'
+      );
+      return;
+    }
     setCreating(true);
     try {
       const campaign = await api.post<Campaign>('/api/v1/campaigns', {
@@ -314,9 +352,34 @@ export default function NewCampaignPage() {
         }
       }
 
+      if (state.lead_ids.length > 0) {
+        try {
+          await api.post('/api/v1/leads/bulk-assign', {
+            lead_ids: state.lead_ids,
+            campaign_id: campaign.id,
+          });
+        } catch (err) {
+          toast.warning(
+            err instanceof Error
+              ? `Campaign created, but attaching leads failed: ${err.message}`
+              : 'Campaign created, but attaching leads failed.'
+          );
+        }
+      }
+
       if (state.activate_now) {
-        await api.post(`/api/v1/campaigns/${campaign.id}/activate`);
-        toast.success(`Campaign "${campaign.name}" created and activated`);
+        try {
+          await api.post(`/api/v1/campaigns/${campaign.id}/activate`);
+          toast.success(`Campaign "${campaign.name}" created and activated`);
+        } catch (err) {
+          // Surface the backend's reason (e.g. "needs at least one lead"), but
+          // the campaign itself was created — send the user to it as a draft.
+          toast.warning(
+            err instanceof Error
+              ? `Campaign created as a draft — couldn't activate: ${err.message}`
+              : "Campaign created as a draft — couldn't activate."
+          );
+        }
       } else {
         toast.success(`Campaign "${campaign.name}" created`);
       }
@@ -330,6 +393,9 @@ export default function NewCampaignPage() {
   const personaName = personas.find((p) => p.id === state.persona_id)?.name;
   const toneName = toneProfiles.find((t) => t.id === state.tone_profile_id)?.name;
   const selectedDocs = kbDocs.filter((d) => selectedDocIds.includes(d.id));
+  // Prefer an auto-delivery account in the Review status, else the first one.
+  const sendingAccount =
+    sendingAccounts.find((a) => a.delivery_connected) ?? sendingAccounts[0] ?? null;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -630,7 +696,58 @@ export default function NewCampaignPage() {
           </div>
         )}
 
-        {stepIndex === 4 && (
+        {stepIndex === STEP.leads && (
+          <div>
+            <h3 className="mb-1 text-sm font-semibold text-slate-900">
+              Add leads
+            </h3>
+            <p className="mb-4 text-xs text-slate-500">
+              Attach the people this campaign should reach. Pick from your existing
+              leads or import a CSV. Optional now — you can add leads later from the
+              campaign page — but a campaign needs at least one lead before it can
+              be activated.
+            </p>
+            <LeadPicker
+              selectedIds={state.lead_ids}
+              onSelectedChange={(ids) => patch({ lead_ids: ids })}
+              onImportHandle={setLeadImportHandle}
+            />
+            {leadImportHandle?.stage === 'map' && (
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => leadImportHandle.back()}
+                  disabled={leadImportHandle.busy}
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => leadImportHandle.submit()}
+                  disabled={!leadImportHandle.canSubmit}
+                  className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+                >
+                  {leadImportHandle.busy && (
+                    <Spinner size="sm" className="border-white/40 border-t-white" />
+                  )}
+                  {leadImportHandle.busy
+                    ? 'Importing…'
+                    : `Import ${leadImportHandle.totalRows || ''} leads`}
+                </button>
+              </div>
+            )}
+            <p className="mt-3 text-xs font-medium text-slate-600">
+              {state.lead_ids.length === 0
+                ? 'No leads selected yet.'
+                : `${state.lead_ids.length} lead${
+                    state.lead_ids.length === 1 ? '' : 's'
+                  } will be added to this campaign.`}
+            </p>
+          </div>
+        )}
+
+        {stepIndex === STEP.knowledge && (
           <div>
             <h3 className="mb-1 text-sm font-semibold text-slate-900">
               Knowledge sources
@@ -706,7 +823,7 @@ export default function NewCampaignPage() {
           </div>
         )}
 
-        {stepIndex === 5 && (
+        {stepIndex === STEP.sendCta && (
           <div className="space-y-5">
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
@@ -836,7 +953,7 @@ export default function NewCampaignPage() {
           </div>
         )}
 
-        {stepIndex === 6 && (
+        {stepIndex === STEP.review && (
           <div className="space-y-4">
             <h3 className="text-sm font-semibold text-slate-900">One last look</h3>
             <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 p-4 text-sm text-slate-700">
@@ -874,10 +991,37 @@ export default function NewCampaignPage() {
                     : state.cta_value || 'custom'}
               </p>
               <p>
+                <span className="font-semibold text-slate-900">Leads:</span>{' '}
+                {state.lead_ids.length === 0
+                  ? 'none attached yet (you can add leads later from the campaign page)'
+                  : `${state.lead_ids.length} lead${
+                      state.lead_ids.length === 1 ? '' : 's'
+                    } will be added to this campaign`}
+              </p>
+              <p>
                 <span className="font-semibold text-slate-900">Pace:</span> up to{' '}
                 {state.daily_send_limit} messages/day, {state.working_hours_start}–
                 {state.working_hours_end} on {state.working_days.join(', ')}.
               </p>
+              {sendingAccount ? (
+                <p>
+                  <span className="font-semibold text-slate-900">
+                    Sending from:
+                  </span>{' '}
+                  ✓ {sendingAccount.account_label}
+                  {sendingAccount.delivery_connected
+                    ? ' (auto-delivery on)'
+                    : ' (manual sending)'}
+                </p>
+              ) : (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-800">
+                  ⚠ No LinkedIn account connected yet — connect one in{' '}
+                  <Link href="/settings" className="font-semibold underline">
+                    Settings
+                  </Link>{' '}
+                  before activating.
+                </p>
+              )}
               <p className="border-t border-slate-200 pt-2 font-medium text-indigo-700">
                 Nothing sends without your approval — every draft lands in your
                 review queue first.

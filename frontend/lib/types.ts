@@ -227,6 +227,13 @@ export interface Lead {
   icp_match_pct: number | null;
   status: LeadStatus;
   enriched_at: string | null;
+  connection_accepted_at: string | null;
+  campaign_id?: string | null;
+}
+
+export interface LeadBulkAssign {
+  lead_ids: string[];
+  campaign_id: string;
 }
 
 export interface LeadImportResult {

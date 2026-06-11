@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { api, apiDownload } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import { StatusBadge } from '@/components/Badge';
@@ -8,12 +8,12 @@ import EmptyState from '@/components/EmptyState';
 import Modal from '@/components/Modal';
 import Spinner, { PageLoader } from '@/components/Spinner';
 import Pagination from '@/components/Pagination';
+import LeadImportFlow, { LeadImportFlowHandle } from '@/components/LeadImportFlow';
+import LeadConnectionChip from '@/components/LeadConnectionChip';
 import type {
   Campaign,
   IcpProfile,
   Lead,
-  LeadImportPreview,
-  LeadImportResult,
   LeadStatus,
   Paginated,
 } from '@/lib/types';
@@ -245,28 +245,7 @@ function IcpPanel() {
   );
 }
 
-// ---------- CSV import ----------
-
-type ImportStage = 'upload' | 'map' | 'result';
-
-const NOT_MAPPED = '';
-
-interface MappingField {
-  key: string;
-  label: string;
-}
-
-const MAPPING_FIELDS: MappingField[] = [
-  { key: 'first_name', label: 'First name' },
-  { key: 'last_name', label: 'Last name' },
-  { key: 'name', label: 'Full name' },
-  { key: 'linkedin_url', label: 'LinkedIn profile URL' },
-  { key: 'title', label: 'Job title' },
-  { key: 'company', label: 'Company' },
-  { key: 'industry', label: 'Industry' },
-  { key: 'location', label: 'Location' },
-  { key: 'email', label: 'Email' },
-];
+// ---------- Add lead form ----------
 
 interface NewLeadForm {
   first_name: string;
@@ -306,15 +285,10 @@ export default function LeadsPage() {
 
   // Import flow
   const [showImport, setShowImport] = useState(false);
-  const [importStage, setImportStage] = useState<ImportStage>('upload');
-  const [importFile, setImportFile] = useState<File | null>(null);
   const [importCampaign, setImportCampaign] = useState('');
-  const [previewing, setPreviewing] = useState(false);
-  const [preview, setPreview] = useState<LeadImportPreview | null>(null);
-  const [mapping, setMapping] = useState<Record<string, string>>({});
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<LeadImportResult | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importHandle, setImportHandle] = useState<LeadImportFlowHandle | null>(
+    null
+  );
 
   const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
@@ -380,72 +354,6 @@ export default function LeadsPage() {
     }
   };
 
-  const previewImport = async (file: File) => {
-    setImportFile(file);
-    setPreviewing(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await api.upload<LeadImportPreview>(
-        '/api/v1/leads/import/preview',
-        fd
-      );
-      setPreview(res);
-      const initial: Record<string, string> = {};
-      for (const f of MAPPING_FIELDS) {
-        const suggested = res.suggested_mapping?.[f.key];
-        initial[f.key] =
-          suggested && res.headers.includes(suggested) ? suggested : NOT_MAPPED;
-      }
-      setMapping(initial);
-      setImportStage('map');
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : 'Could not read that CSV file'
-      );
-      setImportFile(null);
-    } finally {
-      setPreviewing(false);
-    }
-  };
-
-  const nameMapped =
-    !!mapping['name'] || (!!mapping['first_name'] && !!mapping['last_name']);
-  const linkedinMapped = !!mapping['linkedin_url'];
-  const mappingProblems: string[] = [];
-  if (!nameMapped) {
-    mappingProblems.push(
-      'Pick which columns contain First name and Last name — or map a single Full name column and we’ll split it for you.'
-    );
-  }
-  if (!linkedinMapped) {
-    mappingProblems.push('Pick which column contains the LinkedIn profile URL.');
-  }
-
-  const runImport = async () => {
-    if (!importFile) return;
-    setImporting(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', importFile);
-      if (importCampaign) fd.append('campaign_id', importCampaign);
-      const cleaned: Record<string, string> = {};
-      for (const [field, header] of Object.entries(mapping)) {
-        if (header) cleaned[field] = header;
-      }
-      fd.append('mapping', JSON.stringify(cleaned));
-      const res = await api.upload<LeadImportResult>('/api/v1/leads/import', fd);
-      setImportResult(res);
-      setImportStage('result');
-      toast.success(`Imported ${res.imported} leads`);
-      load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Import failed');
-    } finally {
-      setImporting(false);
-    }
-  };
-
   const enrich = async (lead: Lead) => {
     setEnrichingIds((prev) => new Set(prev).add(lead.id));
     try {
@@ -486,15 +394,9 @@ export default function LeadsPage() {
 
   const closeImport = () => {
     setShowImport(false);
-    setImportStage('upload');
-    setImportFile(null);
-    setPreview(null);
-    setMapping({});
-    setImportResult(null);
+    importHandle?.reset();
     setImportCampaign('');
   };
-
-  const mappedFields = MAPPING_FIELDS.filter((f) => mapping[f.key]);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -605,6 +507,7 @@ export default function LeadsPage() {
                 <th className="px-4 py-3">Quality</th>
                 <th className="px-4 py-3">ICP match</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Connection</th>
                 <th className="px-4 py-3">Enriched</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
@@ -641,6 +544,9 @@ export default function LeadsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <StatusBadge status={lead.status} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <LeadConnectionChip lead={lead} onChange={load} />
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-500">
                     {lead.enriched_at
@@ -789,96 +695,55 @@ export default function LeadsPage() {
         open={showImport}
         onClose={closeImport}
         title={
-          importStage === 'upload'
-            ? 'Import leads from CSV'
-            : importStage === 'map'
-              ? 'Match your columns'
-              : 'Import complete'
+          importHandle?.stage === 'map'
+            ? 'Match your columns'
+            : importHandle?.stage === 'result'
+              ? 'Import complete'
+              : 'Import leads from CSV'
         }
         wide
         footer={
-          importStage === 'upload' ? (
-            <button
-              onClick={closeImport}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-          ) : importStage === 'map' ? (
+          importHandle?.stage === 'map' ? (
             <>
               <button
-                onClick={() => {
-                  setImportStage('upload');
-                  setImportFile(null);
-                  setPreview(null);
-                }}
-                disabled={importing}
+                onClick={() => importHandle.back()}
+                disabled={importHandle.busy}
                 className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
               >
                 Back
               </button>
               <button
-                onClick={runImport}
-                disabled={importing || mappingProblems.length > 0}
+                onClick={() => importHandle.submit()}
+                disabled={!importHandle.canSubmit}
                 className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
               >
-                {importing && (
+                {importHandle.busy && (
                   <Spinner size="sm" className="border-white/40 border-t-white" />
                 )}
-                {importing
+                {importHandle.busy
                   ? 'Importing…'
-                  : `Import ${preview?.total_rows ?? ''} leads`}
+                  : `Import ${importHandle.totalRows || ''} leads`}
               </button>
             </>
-          ) : (
+          ) : importHandle?.stage === 'result' ? (
             <button
               onClick={closeImport}
               className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
             >
               Done
             </button>
+          ) : (
+            <button
+              onClick={closeImport}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
           )
         }
       >
-        {importStage === 'upload' && (
-          <div className="space-y-4">
-            <p className="text-sm text-slate-500">
-              Any CSV works — next you&apos;ll match your columns to our fields, so
-              the headers don&apos;t need to be exact.
-            </p>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={previewing}
-              className="flex w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-sm text-slate-500 hover:border-indigo-400 hover:bg-indigo-50/40 disabled:opacity-60"
-            >
-              {previewing ? (
-                <>
-                  <Spinner size="lg" />
-                  <span className="mt-2 font-medium text-slate-700">
-                    Reading your file…
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="text-2xl">📄</span>
-                  <span className="mt-2 font-medium text-slate-700">
-                    {importFile ? importFile.name : 'Click to choose a CSV file'}
-                  </span>
-                </>
-              )}
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) previewImport(f);
-                e.target.value = '';
-              }}
-            />
+        <div className="space-y-4">
+          {importHandle?.stage !== 'result' && (
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
                 Assign to campaign <span className="text-slate-400">(optional)</span>
@@ -896,151 +761,13 @@ export default function LeadsPage() {
                 ))}
               </select>
             </div>
-          </div>
-        )}
-
-        {importStage === 'map' && preview && (
-          <div className="space-y-4">
-            <p className="text-sm text-slate-700">
-              We found{' '}
-              <span className="font-semibold">{preview.total_rows} rows</span> in{' '}
-              <span className="font-medium">{importFile?.name}</span>. Tell us which
-              of your columns goes where — we&apos;ve guessed where we could.
-            </p>
-
-            {mappingProblems.length > 0 && (
-              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-                <p className="font-semibold">Almost there — a required field isn&apos;t matched yet:</p>
-                <ul className="mt-1 list-inside list-disc space-y-0.5">
-                  {mappingProblems.map((m, i) => (
-                    <li key={i}>{m}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <div className="overflow-hidden rounded-lg border border-slate-200">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2">Lead field</th>
-                    <th className="px-3 py-2">Column in your file</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {MAPPING_FIELDS.map((f) => {
-                    const requiredName =
-                      f.key === 'first_name' || f.key === 'last_name' || f.key === 'name';
-                    const requiredUrl = f.key === 'linkedin_url';
-                    return (
-                      <tr key={f.key} className="hover:bg-slate-50">
-                        <td className="px-3 py-2">
-                          <span className="font-medium text-slate-800">{f.label}</span>
-                          {requiredUrl && (
-                            <span className="ml-1.5 text-xs font-medium text-rose-500">
-                              Required
-                            </span>
-                          )}
-                          {requiredName && (
-                            <span className="ml-1.5 text-xs text-slate-400">
-                              {f.key === 'name'
-                                ? 'Counts as first + last name'
-                                : 'Required (or map Full name)'}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          <select
-                            value={mapping[f.key] || NOT_MAPPED}
-                            onChange={(e) =>
-                              setMapping((prev) => ({
-                                ...prev,
-                                [f.key]: e.target.value,
-                              }))
-                            }
-                            className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-                          >
-                            <option value={NOT_MAPPED}>— not in my file —</option>
-                            {preview.headers.map((h) => (
-                              <option key={h} value={h}>
-                                {h}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {mappedFields.length > 0 && preview.sample_rows.length > 0 && (
-              <div>
-                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Preview — first rows as they&apos;ll import
-                </p>
-                <div className="overflow-x-auto rounded-lg border border-slate-200">
-                  <table className="w-full text-xs">
-                    <thead className="bg-slate-50 text-left font-semibold uppercase tracking-wide text-slate-500">
-                      <tr>
-                        {mappedFields.map((f) => (
-                          <th key={f.key} className="whitespace-nowrap px-3 py-2">
-                            {f.label}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {preview.sample_rows.slice(0, 3).map((row, i) => (
-                        <tr key={i}>
-                          {mappedFields.map((f) => (
-                            <td
-                              key={f.key}
-                              className="max-w-[160px] truncate px-3 py-2 text-slate-700"
-                            >
-                              {row[mapping[f.key]] ?? ''}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {importStage === 'result' && importResult && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-              <span className="text-3xl">🎉</span>
-              <div>
-                <p className="text-2xl font-semibold text-emerald-700">
-                  {importResult.imported} leads imported
-                </p>
-                <p className="text-sm text-emerald-700/80">
-                  {importResult.skipped > 0
-                    ? `${importResult.skipped} rows were skipped.`
-                    : 'No rows were skipped.'}
-                </p>
-              </div>
-            </div>
-            {importResult.errors.length > 0 && (
-              <div>
-                <p className="mb-1.5 text-sm font-semibold text-slate-800">
-                  Issues ({importResult.errors.length})
-                </p>
-                <ul className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-rose-600">
-                  {importResult.errors.map((e, i) => (
-                    <li key={i}>• {e}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
+          )}
+          <LeadImportFlow
+            campaignId={importCampaign || undefined}
+            onReady={setImportHandle}
+            onImported={() => load()}
+          />
+        </div>
       </Modal>
     </div>
   );
