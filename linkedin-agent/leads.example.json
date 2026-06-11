@@ -1,0 +1,12 @@
+[
+  {
+    "url": "https://www.linkedin.com/in/someone1/",
+    "action": "connection_request",
+    "message": "Hi Sam — loved your recent post on outbound. Would be glad to connect."
+  },
+  {
+    "url": "https://www.linkedin.com/in/someone2/",
+    "action": "message",
+    "message": "Thanks for connecting! Curious how your team handles lead gen right now."
+  }
+]

@@ -8,7 +8,18 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, get_current_workspace, require_role
 from app.database import get_db
-from app.models import Campaign, DraftQueueItem, Lead, SequenceStep, User
+from app.models import (
+    Campaign,
+    Conversation,
+    DraftQueueItem,
+    Lead,
+    Message,
+    SafetyLog,
+    SendingAccount,
+    SequenceStep,
+    User,
+    Workspace,
+)
 from app.schemas import (
     BulkApproveRequest,
     DraftGenerateRequest,
@@ -64,6 +75,56 @@ def _approve(draft: DraftQueueItem, user: User) -> bool:
     draft.approved_by = user.id
     draft.updated_at = datetime.utcnow()
     return edited
+
+
+async def _record_external_send(db: AsyncSession, draft: DraftQueueItem, workspace, action_type: str) -> None:
+    """Bookkeeping for a message delivered outside the app (e.g. by the local
+    LinkedIn browser agent): mark sent, log the send against the sending
+    account, open/append the conversation, advance the lead, bump metrics.
+    Mirrors the in-app dispatcher so analytics and safety stay consistent."""
+    content = draft.human_edit or draft.ai_draft
+    draft.status = "sent"
+    draft.sent_at = datetime.utcnow()
+    draft.updated_at = datetime.utcnow()
+
+    account = (await db.execute(
+        select(SendingAccount).where(
+            SendingAccount.workspace_id == workspace.id, SendingAccount.status == "active"
+        ).order_by(SendingAccount.created_at).limit(1)
+    )).scalar_one_or_none()
+    if account is not None:
+        account.sends_today += 1
+        account.sends_this_week += 1
+        if action_type == "connection_request":
+            account.connections_this_week += 1
+        db.add(SafetyLog(
+            account_id=account.id,
+            action_type=action_type,
+            details={"draft_id": str(draft.id), "delivered_via": "browser_agent"},
+            daily_count_at_time=account.sends_today,
+            weekly_count_at_time=account.sends_this_week,
+        ))
+
+    conversation = (await db.execute(
+        select(Conversation).where(
+            Conversation.campaign_id == draft.campaign_id, Conversation.lead_id == draft.lead_id
+        ).limit(1)
+    )).scalar_one_or_none()
+    if conversation is None:
+        conversation = Conversation(campaign_id=draft.campaign_id, lead_id=draft.lead_id)
+        db.add(conversation)
+        await db.flush()
+    db.add(Message(conversation_id=conversation.id, sender_type="user", content=content))
+    conversation.last_message_at = datetime.utcnow()
+
+    lead = draft.lead
+    if lead is not None and lead.status in ("new", "queued"):
+        lead.status = "contacted"
+    workspace_row = await db.get(Workspace, workspace.id)
+    if workspace_row is not None:
+        workspace_row.current_month_usage += 1
+    await metrics.bump_metric(db, draft.campaign_id, "messages_sent")
+    await metrics.record_event(db, draft.campaign_id, "message_sent", {"draft_id": str(draft.id), "action_type": action_type, "via": "browser_agent"})
 
 
 @router.post("/generate")
@@ -223,6 +284,90 @@ async def send_draft_now(
 
     dispatch_draft_task.delay(str(draft.id))
     return {**_to_out(draft), "dispatch_queued": True}
+
+
+def _action_type(draft: DraftQueueItem) -> str:
+    step = draft.sequence_step
+    return "connection_request" if step and step.step_type == "connection_request" else "message"
+
+
+@router.get("/agent/queue")
+async def agent_queue(
+    workspace=Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pull approved drafts for the local LinkedIn browser agent to deliver.
+    Only human-approved drafts on running campaigns are returned, each tagged
+    with the action the agent should perform and the message text."""
+    rows = (await db.execute(
+        select(DraftQueueItem)
+        .join(Campaign, Campaign.id == DraftQueueItem.campaign_id)
+        .where(
+            Campaign.workspace_id == workspace.id,
+            Campaign.status == "running",
+            DraftQueueItem.status.in_(["approved", "edited_and_approved"]),
+        )
+        .options(selectinload(DraftQueueItem.lead), selectinload(DraftQueueItem.sequence_step))
+        .order_by(DraftQueueItem.scheduled_for.nulls_last(), DraftQueueItem.created_at)
+        .limit(100)
+    )).scalars().all()
+    queue = []
+    for draft in rows:
+        lead = draft.lead
+        if lead is None or not lead.linkedin_url:
+            continue
+        queue.append({
+            "draft_id": str(draft.id),
+            "action_type": _action_type(draft),
+            "linkedin_url": lead.linkedin_url,
+            "lead_name": lead.name,
+            "content": draft.human_edit or draft.ai_draft,
+            "scheduled_for": draft.scheduled_for.isoformat() if draft.scheduled_for else None,
+        })
+    return {"items": queue, "count": len(queue)}
+
+
+@router.post("/{draft_id}/mark-sent")
+async def mark_sent(
+    draft_id: uuid.UUID,
+    workspace=Depends(get_current_workspace),
+    _role: str = Depends(require_role("member")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The local browser agent reports that it delivered this approved draft on
+    LinkedIn. Records the send so analytics, safety counters and the inbox stay
+    in sync. Idempotent: a draft already marked sent returns OK."""
+    draft = await _get_draft(draft_id, workspace, db)
+    if draft.status == "sent":
+        return _to_out(draft)
+    if draft.status not in ("approved", "edited_and_approved"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Only approved drafts can be marked sent (this one is {draft.status})",
+        )
+    await _record_external_send(db, draft, workspace, _action_type(draft))
+    await db.commit()
+    return _to_out(draft)
+
+
+@router.post("/{draft_id}/mark-failed")
+async def mark_failed(
+    draft_id: uuid.UUID,
+    workspace=Depends(get_current_workspace),
+    _role: str = Depends(require_role("member")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The local browser agent reports it could not deliver this draft (e.g. the
+    person isn't connectable, or a selector/timeout failed). Leaves it visible
+    for retry by flipping it back to pending_review."""
+    draft = await _get_draft(draft_id, workspace, db)
+    if draft.status == "sent":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Draft already sent")
+    draft.status = "pending_review"
+    draft.updated_at = datetime.utcnow()
+    await metrics.record_event(db, draft.campaign_id, "delivery_failed", {"draft_id": str(draft.id), "via": "browser_agent"})
+    await db.commit()
+    return _to_out(draft)
 
 
 @router.post("/{draft_id}/skip")

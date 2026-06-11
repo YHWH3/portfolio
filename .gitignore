@@ -19,3 +19,8 @@ npm-debug.log*
 
 # Redis dump files
 dump.rdb
+
+# LinkedIn browser agent — never commit a logged-in session
+linkedin-agent/linkedin_state.json
+linkedin-agent/.venv/
+linkedin-agent/leads.json
